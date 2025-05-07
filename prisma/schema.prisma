@@ -1,0 +1,311 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id                  String        @id @default(uuid())
+  email               String?       @unique
+  name                String?
+  emailVerified       DateTime?
+  image               String?
+  onboardingCompleted Boolean       @default(false)
+  termsAccepted       Boolean       @default(false)
+  legalDeclaration    Boolean       @default(false)
+  role                UserRole      @default(INDIVIDUAL) //@todo add TEMPORARY_VERIFIED role and change it when users create their account, which would be by verifying their email
+  firstname           String?
+  lastname            String?
+  phoneNumber         String?
+  legalId             String?
+  legalIdType         String?
+  country             String?
+
+// Senda-specific fields
+  sendaWalletPublicKey String     @unique
+  encryptedPrivateKey  String
+  iv                   String
+  authTag              String
+  linkedWallets        LinkedWallet[]
+
+  //Privy On-Ramp
+  fiatFundingTransactions      FiatFunding[]
+  onChainTransactions          Transaction[]
+  deposits DepositRecord[]
+  transactionHistory           TransactionHistory[]
+
+  isTwoFactorEnabled    Boolean       @default(false)
+  twoFactorConfirmation TwoFactorConfirmation?
+  twoFactorSecret       TwoFactorSecret?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+  kyc                 UserKYC?
+  accounts            Account[]
+  sessions            Session[]
+
+  senderEscrows Escrow[] @relation("SenderEscrows")
+  receiverEscrows Escrow[] @relation("ReceiverEscrows")
+
+  @@index([role])
+  @@index([sendaWalletPublicKey])
+}
+
+model Account {
+  id                String  @id @default(uuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(uuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model TwoFactorToken {
+  id String @id @default(uuid())
+  email      String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([email, token])
+}
+
+model TwoFactorConfirmation {
+  id String @id @default(uuid())
+  
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId])
+}
+
+model TwoFactorSecret {
+  id     String @id @default(uuid())
+  userId String @unique
+  secret String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model LinkedWallet {
+  id String @id @default(uuid())
+  publicKey String  @unique
+  isPrimary Boolean @default(false)
+  provider String?  // Store wallet provider name (Phantom, Solflare, etc.)
+
+  userId String
+  user User @relation(fields: [userId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Transaction {
+  id String @id @default(uuid())
+  walletPublicKey  String
+  destinationAddress String?
+  
+  userId String
+  user User @relation(fields: [userId], references: [id])
+
+  amount Float
+  status TransactionStatus
+  type TransactionType
+  depositRecord DepositRecord?
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  completedAt DateTime?
+  
+  history TransactionHistory[]
+
+  @@index([userId])
+  @@index([destinationAddress])
+  @@index([walletPublicKey])
+}
+
+model FiatFunding {
+  id         String   @id @default(uuid())
+  publicKey  String   
+  method     String   
+  chain      String   
+  asset      String   
+  amount     Float
+
+  userId     String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  timestamp  DateTime @default(now())
+
+  @@index([userId])
+  @@index([publicKey])
+  @@index([userId, publicKey])
+}
+
+model EscrowLog {
+  id         String   @id @default(cuid())
+  escrow     String   @unique
+  action     String   // "deposit", "requestWithdrawal", "approve", "cancel"
+  actor      String   // publicKey
+  amount     Float?
+  timestamp  DateTime @default(now())
+
+  depositRecordId String? @unique
+  depositRecord DepositRecord? @relation(fields: [depositRecordId], references: [id], onDelete: Cascade)
+
+  @@index([depositRecordId])
+}
+
+model DepositRecord {
+  id String @id @default(uuid()) @unique
+  depositIndex Float @unique
+  amount Float
+  policy SignatureType
+  stable String
+  signatures String[]
+  state String
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  transactionId String @unique
+  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  
+  escrowLog EscrowLog?
+
+  escrowId String?
+  escrow Escrow? @relation(fields: [escrowId], references: [id])
+
+  @@index([userId])
+  @@index([transactionId])
+  @@index([depositIndex])
+  @@index([transactionId, userId])
+}
+
+model TransactionHistory {
+  id String @id @default(uuid())
+  transactionId String
+  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  status TransactionStatus
+  message String?
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([transactionId])
+  @@index([userId])
+}
+
+//To enable login with wallet in the future
+model AuthNonce {
+  id        String   @id @default(uuid())
+  publicKey String
+  nonce     String
+  expires   DateTime
+  
+  @@index([publicKey])
+  @@index([nonce])
+  @@index([publicKey, nonce])
+}
+
+//Shufti KYC Model, If necessary for the future
+model UserKYC {
+  id                    String    @id @default(uuid())
+  userId                String    @unique
+  status                KYCStatus
+  verificationReference String?  
+  verificationUrl       String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  user                  User      @relation(fields: [userId], references: [id])
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  CANCELLED
+  REJECTED
+  FAILED
+}
+
+enum AccountType {
+  CHECKING
+  SAVINGS
+}
+
+enum TransactionType {
+  ON_RAMP
+  OFF_RAMP
+  TRANSFER
+}
+
+enum KYCStatus {
+  LEVEL_1
+  LEVEL_2
+  LEVEL_3
+  REJECTED
+}
+
+enum SignatureType {
+  SINGLE
+  DUAL
+}
+
+enum UserRole {
+  INDIVIDUAL
+}
+
+model Escrow {
+  id String @id @unique
+  senderPublicKey String
+  receiverPublicKey String
+  depositedUsdc Float
+  depositedUsdt Float
+  depositCount Float
+  state String // "Active" | "Closed"
+  
+  // Relations
+  deposits DepositRecord[]
+  sender User @relation("SenderEscrows", fields: [senderPublicKey], references: [sendaWalletPublicKey])
+  receiver User @relation("ReceiverEscrows", fields: [receiverPublicKey], references: [sendaWalletPublicKey])
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([senderPublicKey])
+  @@index([receiverPublicKey])
+  @@unique([senderPublicKey, receiverPublicKey])
+}

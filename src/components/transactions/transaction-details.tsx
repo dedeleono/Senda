@@ -1,0 +1,312 @@
+'use client';
+
+import { 
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter 
+} from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { useState } from 'react';
+import Image from 'next/image';
+import usdcIcon from '@/public/usdc.svg';
+import usdtIcon from '@/public/usdt-round.svg';
+import StatusTimeline from './status-timeline';
+import { 
+  ArrowUpRight, Copy, XCircle, Check, Loader2, ExternalLink, Calendar, Mail 
+} from 'lucide-react';
+import { format } from 'date-fns';
+import { TransactionStatus, AuthorizedBy } from './transaction-card';
+import { useToast } from '@/hooks/use-toast';
+
+interface TransactionDetailsProps {
+  isOpen: boolean;
+  onClose: () => void;
+  transaction: {
+    id: string;
+    amount: number;
+    token: 'USDC' | 'USDT';
+    recipientEmail: string;
+    senderEmail?: string;
+    createdAt: Date;
+    status: TransactionStatus;
+    authorization: AuthorizedBy;
+    isDepositor: boolean;
+    signatures: Array<{
+      signer: string;
+      role: 'sender' | 'receiver';
+      timestamp?: Date;
+      status: 'signed' | 'pending';
+    }>;
+    statusHistory: Array<{
+      status: string;
+      timestamp: Date;
+      actor?: string;
+    }>;
+    depositIndex?: number;
+    transactionSignature?: string;
+  };
+}
+
+export default function TransactionDetails({ 
+  isOpen, 
+  onClose, 
+  transaction 
+}: TransactionDetailsProps) {
+  const [isProcessing, setIsProcessing] = useState(false);
+  const { toast } = useToast();
+
+  const handleActionClick = async () => {
+    if (isProcessing) return;
+    
+    setIsProcessing(true);
+    
+    try {
+      //@todo implement actual release/cancel business logic along with program actions
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      
+      toast({
+        title: "Success!",
+        description: `Transaction ${getActionButtonText().toLowerCase()} successfully.`,
+      });
+      
+      onClose();
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to process your request. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const getActionButtonText = () => {
+    const { status, authorization, isDepositor } = transaction;
+    
+    if (status === 'PENDING') {
+      if (isDepositor && (authorization === 'sender' || authorization === 'both')) {
+        return 'Release Funds';
+      } else if (!isDepositor && (authorization === 'receiver' || authorization === 'both')) {
+        return 'Withdraw Funds';
+      }
+      
+      if (isDepositor) {
+        return 'Cancel Deposit';
+      }
+    }
+    
+    return 'Close';
+  };
+
+  const getActionButtonVariant = () => {
+    const { status } = transaction;
+    
+    if (status === 'PENDING') {
+      return 'default';
+    }
+    
+    return 'outline';
+  };
+
+  const copyToClipboard = (text: string, message: string) => {
+    navigator.clipboard.writeText(text)
+      .then(() => {
+        toast({
+          title: "Copied!",
+          description: message,
+        });
+      })
+      .catch(err => {
+        console.error('Failed to copy:', err);
+      });
+  };
+
+  const getTokenIcon = (token: 'USDC' | 'USDT') => {
+    return token === 'USDC' ? usdcIcon : usdtIcon;
+  };
+
+  const getAuthorizationText = (authorization: AuthorizedBy) => {
+    switch (authorization) {
+      case 'sender':
+        return 'Sender only';
+      case 'receiver':
+        return 'Receiver only';
+      case 'both':
+        return 'Both parties must approve';
+      default:
+        return authorization;
+    }
+  };
+
+  const canPerformAction = () => {
+    const { status, authorization, isDepositor, signatures } = transaction;
+    
+    if (status !== 'PENDING') return false;
+    
+    if (isDepositor && authorization === 'sender') {
+      return true;
+    }
+    
+    if (!isDepositor && authorization === 'receiver') {
+      return true;
+    }
+    
+    if (authorization === 'both') {
+      const userRole = isDepositor ? 'sender' : 'receiver';
+      const hasUserSigned = signatures.some(
+        sig => sig.role === userRole && sig.status === 'signed'
+      );
+      
+      return !hasUserSigned;
+    }
+    
+    return false;
+  };
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-[600px]">
+        <DialogHeader>
+          <DialogTitle>Transaction Details</DialogTitle>
+        </DialogHeader>
+        
+        {/* Transaction Summary */}
+        <Card className="p-4 border rounded-lg">
+          <div className="flex justify-between items-center mb-4">
+            <div className="text-xl font-semibold flex items-center">
+              <Image 
+                src={getTokenIcon(transaction.token)} 
+                alt={transaction.token} 
+                width={24} 
+                height={24} 
+                className="mr-2"
+              />
+              {transaction.amount.toFixed(2)} {transaction.token}
+            </div>
+            
+            <div className="flex items-center">
+              <span className={`text-xs px-2 py-1 rounded-full ${
+                transaction.status === 'COMPLETED' ? 'bg-green-100 text-green-800' :
+                transaction.status === 'PENDING' ? 'bg-yellow-100 text-yellow-800' :
+                'bg-gray-100 text-gray-800'
+              }`}>
+                {transaction.status}
+              </span>
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-2 gap-4 text-sm">
+            <div>
+              <p className="text-gray-500">ID</p>
+              <div className="flex items-center mt-1">
+                <p className="font-mono">{transaction.id.substring(0, 16)}...</p>
+                <button 
+                  onClick={() => copyToClipboard(transaction.id, 'Transaction ID copied')}
+                  className="ml-2 text-gray-500 hover:text-gray-700"
+                >
+                  <Copy className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+            
+            <div>
+              <p className="text-gray-500">Date</p>
+              <div className="flex items-center mt-1">
+                <Calendar className="h-4 w-4 text-gray-500 mr-1" />
+                <p>{format(transaction.createdAt, 'MMM d, yyyy h:mm a')}</p>
+              </div>
+            </div>
+            
+            <div>
+              <p className="text-gray-500">From</p>
+              <div className="flex items-center mt-1">
+                <Mail className="h-4 w-4 text-gray-500 mr-1" />
+                <p>{transaction.senderEmail || 'You'}</p>
+              </div>
+            </div>
+            
+            <div>
+              <p className="text-gray-500">To</p>
+              <div className="flex items-center mt-1">
+                <Mail className="h-4 w-4 text-gray-500 mr-1" />
+                <p>{transaction.recipientEmail}</p>
+              </div>
+            </div>
+            
+            <div>
+              <p className="text-gray-500">Authorization</p>
+              <p className="mt-1">{getAuthorizationText(transaction.authorization)}</p>
+            </div>
+            
+            <div>
+              <p className="text-gray-500">Deposit Index</p>
+              <p className="mt-1">#{transaction.depositIndex || 0}</p>
+            </div>
+          </div>
+          
+          {transaction.transactionSignature && (
+            <div className="mt-4 pt-4 border-t">
+              <p className="text-gray-500 text-sm">Transaction Signature</p>
+              <div className="flex items-center mt-1">
+                <p className="text-xs font-mono truncate">{transaction.transactionSignature}</p>
+                <div className="flex ml-2">
+                  <button 
+                    onClick={() => copyToClipboard(
+                      transaction.transactionSignature!, 
+                      'Transaction signature copied'
+                    )}
+                    className="text-gray-500 hover:text-gray-700 mr-1"
+                  >
+                    <Copy className="h-4 w-4" />
+                  </button>
+                  <a 
+                    href={`https://explorer.solana.com/tx/${transaction.transactionSignature}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-gray-500 hover:text-gray-700"
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                  </a>
+                </div>
+              </div>
+            </div>
+          )}
+        </Card>
+        
+        <div className="my-4">
+          <h3 className="text-sm font-medium mb-3">Transaction Timeline</h3>
+          <StatusTimeline 
+            statusHistory={transaction.statusHistory}
+            signatures={transaction.signatures}
+          />
+        </div>
+        
+        <DialogFooter>
+          <Button 
+            variant="outline" 
+            onClick={onClose}
+            disabled={isProcessing}
+          >
+            Cancel
+          </Button>
+          
+          <Button 
+            variant={getActionButtonVariant()} 
+            onClick={handleActionClick}
+            disabled={isProcessing || !canPerformAction()}
+            className="min-w-[120px]"
+          >
+            {isProcessing ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Processing...
+              </>
+            ) : (
+              getActionButtonText()
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+} 
