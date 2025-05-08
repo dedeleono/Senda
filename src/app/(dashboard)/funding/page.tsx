@@ -10,7 +10,7 @@ import Image from 'next/image';
 import { useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import IceDoodle from '@/public/GroovySittingDoodle.svg';
-import USDCLogo from '@/public/USDC Lockup Inverse.svg';
+import USDCLogo from '@/public/usdc-inverse.svg';
 import USDTLogo from '@/public/Tether Logo.svg';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import Link from 'next/link';
