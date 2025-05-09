@@ -638,6 +638,11 @@ export type SendaDapp = {
           }
         },
         {
+          "name": "fee_payer",
+          "writable": true,
+          "signer": true
+        },
+        {
           "name": "deposit_record",
           "writable": true,
           "pda": {
@@ -797,6 +802,11 @@ export type SendaDapp = {
         209
       ],
       "accounts": [
+        {
+          "name": "fee_payer",
+          "writable": true,
+          "signer": true
+        },
         {
           "name": "escrow",
           "writable": true,
@@ -2661,6 +2671,11 @@ export const SENDA_IDL = {
           }
         },
         {
+          "name": "fee_payer",
+          "writable": true,
+          "signer": true
+        },
+        {
           "name": "deposit_record",
           "writable": true,
           "pda": {
@@ -2820,6 +2835,11 @@ export const SENDA_IDL = {
         209
       ],
       "accounts": [
+        {
+          "name": "fee_payer",
+          "writable": true,
+          "signer": true
+        },
         {
           "name": "escrow",
           "writable": true,

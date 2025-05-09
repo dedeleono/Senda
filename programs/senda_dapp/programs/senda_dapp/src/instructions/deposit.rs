@@ -91,9 +91,13 @@ pub struct Deposit<'info> {
   )]
     pub vault_usdt: Account<'info, TokenAccount>,
 
+    /// CHECK: This account is only used to pay for account creation fees and rent
+    #[account(mut, signer)]
+    pub fee_payer: AccountInfo<'info>,
+
     #[account(
         init,
-        payer = depositor,
+        payer = fee_payer,
         space = 8 + DepositRecord::INIT_SPACE,
         seeds = [b"deposit", escrow.key().as_ref(), escrow.deposit_count.to_le_bytes().as_ref()],
         bump,
@@ -119,6 +123,7 @@ impl<'info> Deposit<'info> {
            self.escrow.state == EscrowState::Active,
            ErrorCode::InvalidState
         );
+        // @todo change specific mints to simply SPLs
 
         let escrow = &mut self.escrow;
         

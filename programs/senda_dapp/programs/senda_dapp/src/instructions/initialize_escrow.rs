@@ -11,9 +11,13 @@ use crate::state::{Escrow, USDC_MINT_ADDR, USDT_MINT_ADDR, EscrowState};
 
 #[derive(Accounts)]
 pub struct InitializeEscrow<'info> {
+    /// CHECK: fee payer
+    #[account(mut, signer)]
+    pub fee_payer: AccountInfo<'info>,
+
     #[account(
         init,
-        payer = sender,
+        payer = fee_payer,
         seeds = [b"escrow", sender.key().as_ref(), receiver.key().as_ref()],
         space = 8 + Escrow::INIT_SPACE,
         bump,
@@ -77,7 +81,7 @@ pub struct InitializeEscrow<'info> {
 
     #[account(
     init,
-    payer = sender,
+    payer = fee_payer,
     token::mint = usdc_mint,
     token::authority = escrow,
     seeds = [b"usdc-vault", escrow.key().as_ref(), usdc_mint.key().as_ref()],
@@ -87,7 +91,7 @@ pub struct InitializeEscrow<'info> {
 
     #[account(
     init,
-    payer = sender,
+    payer = fee_payer,
     token::mint = usdt_mint,
     token::authority = escrow,
     seeds = [b"usdt-vault", escrow.key().as_ref(), usdt_mint.key().as_ref()],
