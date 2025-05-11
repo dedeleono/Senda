@@ -1,24 +1,22 @@
 import { create } from 'zustand';
-import { Connection, PublicKey, TransactionInstruction } from '@solana/web3.js';
-import { AnchorProvider, Program, Provider, setProvider, Idl } from '@coral-xyz/anchor';
+import { PublicKey, TransactionInstruction, Transaction, VersionedTransaction } from '@solana/web3.js';
+import { AnchorProvider, Program, setProvider, Idl } from '@coral-xyz/anchor';
 import { SendaDapp } from '../lib/IDL';
-import { AnchorWallet } from '@solana/wallet-adapter-react';
 import { executeTransaction, TransactionResult } from '@/lib/utils/solana-transaction';
-import { getProgramId } from '@/utils/common';
 import { USDC_MINT, USDT_MINT } from '@/lib/constants';
 import { ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { FactoryStats, EscrowStats, InitEscrowParams, DepositParams, CancelParams, ReleaseParams, EscrowState } from '@/types/senda-program';
-import { findFactoryPDA, findMintAuthPDA, findEscrowPDA, findVaultPDA, findDepositRecordPDA, getSharedConnection, createInstructionData } from '@/lib/senda/helpers';
-import { getWalletAdapter, isSendaWalletConnected } from '@/lib/services/wallet';
+import { findFactoryPDA, findMintAuthPDA, findEscrowPDA, findVaultPDA, findDepositRecordPDA, createInstructionData } from '@/lib/senda/helpers';
 import { SENDA_IDL } from '../lib/IDL/sendaIDL';
+import { useWalletStore } from './use-wallet-store';
+
+const { getAssociatedTokenAddress, createAssociatedTokenAccountInstruction } = await import('@solana/spl-token');
 
 // Constants for Solana system programs
 const SYSTEM_PROGRAM_ID = new PublicKey("11111111111111111111111111111111");
 const SYSVAR_RENT_PUBKEY = new PublicKey("SysvarRent111111111111111111111111111111111");
 
 interface SendaProgramState {
-  wallet: AnchorWallet | null;
-  connection: Connection | null;
   isProcessing: boolean;
   lastError: Error | null;
 }
@@ -28,7 +26,7 @@ export interface SendaStore {
   stats: FactoryStats | null;
   state: SendaProgramState;
 
-  initState: (externalWallet?: AnchorWallet) => Promise<void>;
+  initState: () => Promise<void>;
   
   getFactoryStats: () => Promise<FactoryStats | null>;
   getEscrowStats: (escrowPublicKey: PublicKey) => Promise<EscrowStats | null>;
@@ -36,7 +34,6 @@ export interface SendaStore {
   setProcessing: (isProcessing: boolean) => void;
   setError: (error: Error | null) => void;
   
-  initFactory: (walletPublicKey: string) => Promise<TransactionResult>;
   initEscrow: (params: InitEscrowParams) => Promise<TransactionResult>;
   createDeposit: (params: DepositParams) => Promise<TransactionResult>;
   cancelDeposit: (params: CancelParams) => Promise<TransactionResult>;
@@ -46,131 +43,72 @@ export interface SendaStore {
 }
 
 export const useSendaProgram = create<SendaStore>((set, get) => ({
-  // Base state
   program: null,
   stats: {} as FactoryStats,
   state: {
-    wallet: null,
-    connection: null,
     isProcessing: false,
     lastError: null,
   } as SendaProgramState,
   
-  initState: async (externalWallet?: AnchorWallet) => {
+  initState: async () => {
     const { program: existingProgram } = get();
     if (existingProgram) {
-      console.log('[useSendaProgram] initState called but program is already initialized – skipping');
+      console.log('[useSendaProgram] Program already initialized');
       return;
     }
-    let provider: Provider;
-    let connection: Connection;
-    let wallet: AnchorWallet | undefined = undefined;
-    const programId = getProgramId();
-  
-    connection = getSharedConnection();
-    
-    try {
-      if (externalWallet) {
-        console.log('Using provided external wallet');
-        wallet = externalWallet;
-      } else if (isSendaWalletConnected()) {
-        const sendaWallet = getWalletAdapter();
-        if (sendaWallet && sendaWallet.publicKey) {
-          console.log('Using existing connected Senda wallet:', sendaWallet.publicKey.toString());
-          wallet = sendaWallet as unknown as AnchorWallet;
-        }
-      }
-
-      if (!wallet) {
-       
-        console.log('No wallet supplied or connected – proceeding in read-only mode');
-      }
-      
-      if (wallet) {
-        console.log('Creating AnchorProvider with wallet');
-        const anchorOptions = AnchorProvider.defaultOptions();
-        provider = new AnchorProvider(
-          connection as any, 
-          wallet as any, 
-          anchorOptions
-        );
-      } else {
-        console.log('Creating limited provider without wallet - read-only mode');
-        provider = {
-          connection: connection as any,
-          send: async () => {
-            throw new Error(
-              "Wallet connection required for sending transactions. Please connect your wallet to continue."
-            );
-          },
-          signAndSendTransaction: async () => {
-            throw new Error(
-              "Wallet connection required for sending transactions. Please connect your wallet to continue."
-            );
-          },
-          publicKey: undefined,
-        } as unknown as Provider;
-      }
-      
-      setProvider(provider);
-    } catch (error) {
-      console.error('Error during wallet setup:', error);
-      
-      provider = {
-        connection: connection as any,
-        send: async () => {
-          throw new Error(
-            "Wallet connection required for sending transactions. Please connect your wallet to continue."
-          );
-        },
-        signAndSendTransaction: async () => {
-          throw new Error(
-            "Wallet connection required for sending transactions. Please connect your wallet to continue."
-          );
-        },
-        publicKey: undefined,
-      } as unknown as Provider;
-      
-      setProvider(provider);
-    }
 
     try {
+      const { keypair, connection, publicKey } = useWalletStore.getState();
+      
+      if (!keypair || !connection || !publicKey) {
+        throw new Error('Wallet not initialized');
+      }
+
+      // Create the provider with our wallet
+      const provider = new AnchorProvider(
+        connection as any,
+        {
+          publicKey,
+          signTransaction: async (tx: any) => {
+            tx.partialSign(keypair);
+            return tx;
+          },
+          signAllTransactions: async (txs: any[]) => {
+            txs.forEach(tx => tx.partialSign(keypair));
+            return txs;
+          },
+        },
+        AnchorProvider.defaultOptions()
+      );
+      
+      setProvider(provider);
+
+      // Initialize program
       const program = new Program<SendaDapp>(
         SENDA_IDL as unknown as Idl,
-        provider as AnchorProvider
-      );
-
-      const isWalletConnected = Boolean(
-        (provider as AnchorProvider).wallet &&
-        (provider as AnchorProvider).publicKey
+        provider
       );
 
       set({
-        state: {
-          ...get().state,
-          wallet: wallet || null,
-          connection,
-          lastError: isWalletConnected
-            ? null
-            : new Error("Wallet connection is required for transactions. Program initialized in read-only mode."),
-        },
         program,
+        state: {
+          isProcessing: false,
+          lastError: null
+        }
       });
 
-      console.log(
-        `Program initialized ${isWalletConnected ? 'with' : 'without'} wallet connection`
-      );
+      console.log('Program successfully initialized with wallet:', publicKey.toString());
+      
     } catch (error) {
-      console.error('Error creating program:', error);
+      console.error('Error during program initialization:', error);
       set({ 
         program: null,
         state: { 
-          ...get().state, 
+          isProcessing: false,
           lastError: error instanceof Error ? error : new Error(String(error))
         }
       });
     }
-    return;
   },
 
   getFactoryStats: async () => {
@@ -359,58 +297,6 @@ export const useSendaProgram = create<SendaStore>((set, get) => ({
     set({ state: { ...get().state, lastError: error } });
   },
   
-  initFactory: async (walletPublicKey: string): Promise<TransactionResult> => {
-    try {
-      const { program } = get();
-      if (!program) {
-        throw new Error('Program not initialized');
-      }
-      
-      if (!program.provider.publicKey || !program.provider.wallet) {
-        throw new Error('Wallet connection required for factory initialization. Please connect your wallet to continue.');
-      }
-      
-      const programId = program.programId;
-      const wallet = new PublicKey(walletPublicKey);
-      
-      // Use helper functions for PDA derivation
-      const [factoryPda] = findFactoryPDA(wallet, programId);
-      const [mintAuthPda] = findMintAuthPDA(factoryPda, programId);
-      
-      // Create the instruction data - just the discriminator for init_factory (index 0)
-      const data = Buffer.from([0]);
-      
-      const initFactoryIx = new TransactionInstruction({
-        keys: [
-          { pubkey: factoryPda, isSigner: false, isWritable: true },
-          { pubkey: mintAuthPda, isSigner: false, isWritable: true },
-          { pubkey: wallet, isSigner: true, isWritable: true },
-        ],
-        programId,
-        data,
-      });
-      
-      console.log("Initializing factory with parameters:", {
-        factoryPda: factoryPda.toString(),
-        mintAuthPda: mintAuthPda.toString(),
-        wallet: wallet.toString()
-      });
-      
-      return await executeTransaction(
-        program.provider.connection as any,
-        program.provider.wallet as AnchorWallet,
-        [initFactoryIx]
-      );
-    } catch (error) {
-      console.error("Error during initFactory:", error);
-      const typedError = error instanceof Error ? error : new Error(String(error));
-      return {
-        success: false,
-        error: typedError
-      };
-    }
-  },
-  
   initEscrow: async ({ senderPublicKey, receiverPublicKey, seed = 0 }: InitEscrowParams): Promise<TransactionResult> => {
     try {
       const { program } = get();
@@ -439,9 +325,6 @@ export const useSendaProgram = create<SendaStore>((set, get) => ({
       const [escrowPda] = findEscrowPDA(sender, receiver, programId);
       const [vaultUsdc] = findVaultPDA(escrowPda, usdcMintPubkey, "usdc", programId);
       const [vaultUsdt] = findVaultPDA(escrowPda, usdtMintPubkey, "usdt", programId);
-
-      // Import token related functions
-      const { getAssociatedTokenAddress, createAssociatedTokenAccountInstruction } = await import('@solana/spl-token');
       
       // Get the token accounts for sender and receiver - exactly as in the tests
       const senderUsdcAta = await getAssociatedTokenAddress(usdcMintPubkey, sender, false);
@@ -641,7 +524,7 @@ export const useSendaProgram = create<SendaStore>((set, get) => ({
       
       return await executeTransaction(
         program.provider.connection as any,
-        program.provider.wallet as AnchorWallet,
+        program.provider.wallet as any,
         [depositIx]
       );
     } catch (error) {
@@ -727,7 +610,7 @@ export const useSendaProgram = create<SendaStore>((set, get) => ({
       
       return await executeTransaction(
         program.provider.connection as any,
-        program.provider.wallet as AnchorWallet,
+        program.provider.wallet as any,
         [instruction]
       );
     } catch (error) {
@@ -829,7 +712,7 @@ export const useSendaProgram = create<SendaStore>((set, get) => ({
       
       return await executeTransaction(
         program.provider.connection as any,
-        program.provider.wallet as AnchorWallet,
+        program.provider.wallet as any,
         [instruction]
       );
     } catch (error) {
@@ -847,8 +730,6 @@ export const useSendaProgram = create<SendaStore>((set, get) => ({
       program: null,
       stats: null,
       state: {
-        wallet: null,
-        connection: null,
         isProcessing: false,
         lastError: null,
       }

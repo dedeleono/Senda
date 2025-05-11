@@ -23,7 +23,6 @@ const DepositModal = forwardRef<DepositModalRef, DepositModalProps>(
   ({ onClose, onComplete }, ref) => {
     const [isOpen, setIsOpen] = useState(false);
     
-    // Access deposit store
     const { 
       step, 
       formData,
@@ -57,14 +56,11 @@ const DepositModal = forwardRef<DepositModalRef, DepositModalProps>(
       setIsOpen(false);
       if (onClose) onClose();
       
-      // Reset state when modal is closed with a small delay
-      // so the animation can complete
       setTimeout(() => {
         resetForm();
       }, 300);
     };
 
-    // Expose methods to parent component via ref
     useImperativeHandle(ref, () => ({
       open: handleOpen,
       close: handleClose,
@@ -82,7 +78,6 @@ const DepositModal = forwardRef<DepositModalRef, DepositModalProps>(
             </DialogTitle>
           </DialogHeader>
           
-          {/* Stepper */}
           <div className="w-full px-6 mt-2">
             <div className="flex justify-between mb-2">
               {stepTitles.map((title, index) => (

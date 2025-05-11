@@ -1,9 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { PublicKey, Connection } from '@solana/web3.js';
+import { PublicKey } from '@solana/web3.js';
 import { getAssociatedTokenAddress } from '@solana/spl-token';
-import { useSendaWallet } from '@/hooks/use-senda-wallet';
+import { useWalletStore } from '@/stores/use-wallet-store';
 
 const NETWORK_MINTS = {
     mainnet: {
@@ -31,34 +31,19 @@ interface WalletBalances {
     refetch: () => Promise<void>;
 }
 
-export function useWalletBalances(
-    walletPublicKey: string | null,
-    connection?: Connection
-): WalletBalances {
+export function useWalletBalances(): WalletBalances {
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [error, setError] = useState<string | null>(null);
     const [balances, setBalances] = useState<TokenBalance[]>([]);
 
-    // Try to use the provided wallet, or fall back to the connected Senda wallet
-    const { publicKey } = useSendaWallet();
-    const effectiveWalletPublicKey = walletPublicKey || publicKey?.toString() || null;
+    const { publicKey, connection } = useWalletStore();
 
     const isMainnet = process.env.NEXT_PUBLIC_SOLANA_NETWORK === 'mainnet';
     const network = isMainnet ? 'mainnet' : 'devnet';
     const mints = NETWORK_MINTS[network];
 
-    const getConnection = (): Connection => {
-        if (connection) return connection;
-
-        const endpoint = isMainnet
-            ? 'https://api.mainnet-beta.solana.com'
-            : 'https://api.devnet.solana.com';
-
-        return new Connection(endpoint, 'confirmed');
-    };
-
     const fetchBalances = async () => {
-        if (!effectiveWalletPublicKey) {
+        if (!publicKey || !connection) {
             setBalances([]);
             return;
         }
@@ -67,8 +52,6 @@ export function useWalletBalances(
         setError(null);
 
         try {
-            const conn = getConnection();
-            const walletPubkey = new PublicKey(effectiveWalletPublicKey);
             const tokens: TokenBalance[] = [];
 
             const tokensToFetch = [
@@ -82,11 +65,11 @@ export function useWalletBalances(
                     const mintPubkey = new PublicKey(token.mint);
                     const tokenAccount = await getAssociatedTokenAddress(
                         mintPubkey,
-                        walletPubkey
+                        publicKey
                     );
 
                     try {
-                        const accountInfo = await conn.getTokenAccountBalance(tokenAccount);
+                        const accountInfo = await connection.getTokenAccountBalance(tokenAccount);
                         const rawBalance = accountInfo.value.amount;
                         const uiBalance = accountInfo.value.uiAmount || 0;
 
@@ -121,12 +104,12 @@ export function useWalletBalances(
     };
 
     useEffect(() => {
-        if (effectiveWalletPublicKey) {
+        if (publicKey) {
             fetchBalances();
         } else {
             setBalances([]);
         }
-    }, [effectiveWalletPublicKey]);
+    }, [publicKey?.toString()]);
 
     return {
         isLoading,

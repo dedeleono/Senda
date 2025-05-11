@@ -1,24 +1,50 @@
 'use client';
 
-import { useEffect } from 'react';
-import { Session } from 'next-auth';
 import { useSession } from 'next-auth/react';
+import { useEffect, useState } from 'react';
+import { useWalletStore } from '@/stores/use-wallet-store';
 
 export function useAuth() {
-  const { data: sessionData, status } = useSession();
-  
+  const { data: session, status } = useSession();
+  const { initWallet, publicKey, error: walletError } = useWalletStore();
+  const [isInitializingWallet, setIsInitializingWallet] = useState(false);
+
+  // Initialize wallet when user logs in
   useEffect(() => {
-    console.log('Session Status:', {
-      status,
-      hasUser: !!sessionData?.user,
-      userId: sessionData?.user?.id || 'No ID',
-      email: sessionData?.user?.email || 'No email' 
-    });
-  }, [sessionData, status]);
-  
+    const initializeWallet = async () => {
+      if (!session?.user?.id || !session?.user?.sendaWalletPublicKey) {
+        console.error('Missing user ID or Senda wallet public key');
+        return;
+      }
+
+      try {
+        setIsInitializingWallet(true);
+        await initWallet(session.user.id, session.user.sendaWalletPublicKey);
+      } catch (error) {
+        console.error('Failed to initialize wallet:', error);
+      } finally {
+        setIsInitializingWallet(false);
+      }
+    };
+
+    if (
+      status === 'authenticated' && 
+      session?.user?.id &&
+      session?.user?.sendaWalletPublicKey && 
+      !publicKey && 
+      !isInitializingWallet
+    ) {
+      console.log('Initializing Senda wallet for authenticated user:', session.user.sendaWalletPublicKey);
+      initializeWallet();
+    }
+  }, [status, session?.user?.id, session?.user?.sendaWalletPublicKey, publicKey, isInitializingWallet]);
+
   return {
-    session: sessionData,
     isAuthenticated: status === 'authenticated',
-    isLoading: status === 'loading' 
-  };
+    isLoading: status === 'loading' || isInitializingWallet,
+    session,
+    userId: session?.user?.id,
+    walletError,
+    hasWallet: !!publicKey,
+  } as const;
 } 

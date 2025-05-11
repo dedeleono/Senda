@@ -2,7 +2,7 @@
 
 import { useRef, useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ArrowUp, Plus, PlusIcon, Wallet } from 'lucide-react'
 import { useAuth } from '@/hooks/use-auth'
@@ -12,23 +12,24 @@ import IceDoodle from '@/public/IceCreamDoodle.svg'
 import Image from 'next/image'
 import WalletQRDialog, { WalletQRDialogRef } from './wallet-qr-dialog'
 import { useWalletBalances } from '@/hooks/use-wallet-balances'
-import { useSendaWallet } from '@/hooks/use-senda-wallet'
+
 import usdcIcon from '@/public/usdc.svg'
 import usdtIcon from '@/public/usdt-round.svg'
 import DepositModal, { DepositModalRef } from '@/components/deposit/deposit-modal'
 import TransactionCard from '@/components/transactions/transaction-card'
 import TransactionDetails from '@/components/transactions/transaction-details'
 import { Badge } from '@/components/ui/badge'
+import { useWalletStore } from '@/stores/use-wallet-store'
 
 export default function SendaWallet() {
   const { isAuthenticated } = useAuth()
   const walletQRDialogRef = useRef<WalletQRDialogRef>(null)
   const depositModalRef = useRef<DepositModalRef>(null)
 
-  const { connected, publicKey } = useSendaWallet()
+  const { publicKey } = useWalletStore()
   const sendaWalletAddress = publicKey?.toString() || null
   
-  const { isLoading, error, balances } = useWalletBalances(null)
+  const { isLoading, error, balances } = useWalletBalances()
   
   const [selectedTransaction, setSelectedTransaction] = useState<any>(null)
   const [isTransactionDetailsOpen, setIsTransactionDetailsOpen] = useState(false)
@@ -49,17 +50,30 @@ export default function SendaWallet() {
     depositModalRef.current?.open()
   }
 
-  const handleDepositComplete = (data: any) => {
-    // Handle deposit completion
-    console.log('Deposit completed:', data)
-    // Refresh transactions
-    // @todo Implement invalidation or refresh
+  const handleDepositComplete = (transactionId: string, depositId: string) => {
+    console.log('Deposit completed:', { transactionId, depositId })
+    // You can add additional handling here
   }
 
   const handleOpenTransactionDetails = (transaction: any) => {
     setSelectedTransaction(transaction)
     setIsTransactionDetailsOpen(true)
   }
+
+  if (error) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Wallet</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-destructive">Error loading balances: {error}</p>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  const totalBalance = balances.reduce((sum, token) => sum + token.uiBalance, 0)
 
   return (
     <div className="flex flex-col h-full min-h-full mx-auto md:flex-row md:max-w-3xl">
@@ -69,8 +83,7 @@ export default function SendaWallet() {
             <div className="flex flex-col space-y-3">
               {/* Total Balance */}
               <h2 className="md:text-4xl text-3xl font-bold text-black text-nowrap">
-                ${balances.reduce((sum, token) => sum + token.uiBalance, 0).toFixed(2)}{' '}
-                <span className="text-gray-500 md:text-base text-xs">USD</span>
+                ${totalBalance.toFixed(0)}<small className="text-gray-500 text-xs ml-1">USD</small>
               </h2>
 
               <div className="flex gap-2 items-center -ml-3">
@@ -135,7 +148,6 @@ export default function SendaWallet() {
             {/* Deposit Modal */}
             <DepositModal
               ref={depositModalRef}
-              onClose={() => console.log('Deposit modal closed')}
               onComplete={handleDepositComplete}
             />
           </div>
