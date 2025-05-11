@@ -2,7 +2,6 @@
 
 import { signOut } from 'next-auth/react';
 import { deleteCookie, setCookie } from 'cookies-next';
-import { mutate } from 'swr';
 
 export function useSignOut() {
     const handleSignOut = async () => {

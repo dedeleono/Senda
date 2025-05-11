@@ -1,4 +1,5 @@
 import { clusterApiUrl, Connection, PublicKey } from "@solana/web3.js";
+import { trpc } from "@/app/_trpc/client";
 
 export const findFactoryPDA = (owner: PublicKey, programId: PublicKey): [PublicKey, number] => {
     return PublicKey.findProgramAddressSync(
@@ -60,7 +61,6 @@ export const findDepositRecordPDA = (
     );
 };
 
-
 //Memoised RPC connection
 let _sharedConnection: Connection | null = null;
 export function getSharedConnection(): Connection {
@@ -116,4 +116,18 @@ export const createInstructionData = (
     }
 
     return data;
+};
+
+export const createAta = async (mint: PublicKey, owner: PublicKey) => {
+    try {
+        const result = await trpc.transactionRouter.createAssociatedTokenAccount.useMutation().mutateAsync({
+            mint: mint.toBase58(),
+            owner: owner.toBase58()
+        });
+
+        return new PublicKey(result.address);
+    } catch (error) {
+        console.error("Failed to create ATA:", error);
+        throw error;
+    }
 };

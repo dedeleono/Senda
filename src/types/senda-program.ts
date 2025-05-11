@@ -1,16 +1,16 @@
 import { Program } from "@coral-xyz/anchor";
 import { SendaDapp } from "@/lib/IDL";
-import { PublicKey } from "@solana/web3.js";
+import { Keypair, PublicKey } from "@solana/web3.js";
 
 type ProgramType = Program<SendaDapp>;
 const program = null as unknown as ProgramType;
 
 export type InitFactoryAccounts = Parameters<
-    ReturnType<typeof program.methods.init_factory>["accounts"]
+    ReturnType<typeof program.methods.initFactory>["accounts"]
 >[0];
 
 export type InitEscrowAccounts = Parameters<
-    ReturnType<typeof program.methods.initialize_escrow>["accounts"]
+    ReturnType<typeof program.methods.initializeEscrow>["accounts"]
 >[0];
 
 export type DepositAccounts = Parameters<

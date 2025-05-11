@@ -8,7 +8,6 @@ import { useSendaProgram } from '@/stores/use-senda-program';
 export function useAuth() {
   const { data: session, status } = useSession();
   const { initWallet, publicKey, error: walletError } = useWalletStore();
-  const { initState: initSendaProgram } = useSendaProgram();
   const [isInitializingWallet, setIsInitializingWallet] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
@@ -27,9 +26,8 @@ export function useAuth() {
         console.log('Initializing Senda wallet for authenticated user:', session.user.sendaWalletPublicKey);
         
         await initWallet(session.user.id, session.user.sendaWalletPublicKey)
-        await initSendaProgram();
         
-        console.log('Wallet and Senda program initialized successfully');
+        console.log('Wallet initialized successfully');
       } catch (error) {
         console.error('Error during wallet initialization:', error);
         setError(error instanceof Error ? error : new Error(String(error)));
@@ -41,7 +39,7 @@ export function useAuth() {
     if (status === 'authenticated' && !publicKey) {
       initializeWallet();
     }
-  }, [status, session?.user?.id, session?.user?.sendaWalletPublicKey, publicKey, initWallet, initSendaProgram]);
+  }, [status, session?.user?.id, session?.user?.sendaWalletPublicKey, publicKey, initWallet]);
 
   return {
     isInitializingWallet,

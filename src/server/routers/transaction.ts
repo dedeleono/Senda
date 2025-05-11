@@ -4,8 +4,11 @@ import { router, protectedProcedure, publicProcedure } from "../trpc";
 import { prisma } from "@/lib/db";
 import nodemailer from "nodemailer";
 import crypto from "crypto";
-import { Keypair } from "@solana/web3.js";
+import { Keypair, Connection, PublicKey } from "@solana/web3.js";
 import { encryptPrivateKey } from "@/lib/utils/crypto";
+import { loadFeePayerKeypair } from "@/utils/dapp-wallets";
+import { getOrCreateAssociatedTokenAccount } from "@solana/spl-token";
+import { getSharedConnection } from "@/lib/senda/helpers";
 
 const transporter = nodemailer.createTransport({
   host: process.env.EMAIL_SERVER_HOST,
@@ -202,30 +205,154 @@ export const transactionRouter = router({
       const userId = ctx.session.user.id;
 
       try {
-        let recipient = await prisma.user.findUnique({
-          where: { email: recipientEmail },
-          select: { id: true, role: true, sendaWalletPublicKey: true }
+        console.log('Starting deposit process with params:', {
+          recipientEmail,
+          amount,
+          token,
+          authorization,
+          userId,
+          senderWalletPublicKey: ctx.session.user.sendaWalletPublicKey
         });
 
+        let recipient = await prisma.user.findUnique({
+          where: { email: recipientEmail },
+          select: { 
+            id: true, 
+            role: true, 
+            sendaWalletPublicKey: true,
+            email: true,
+            name: true
+          }
+        });
+
+        console.log('Found recipient:', recipient);
+
         if (!recipient) {
-          
+          console.log('Creating new GUEST user');
+          // Create new user with GUEST role if they don't exist
           const keypair = Keypair.generate();
           const secretBuffer = Buffer.from(keypair.secretKey);
           
           const { iv, authTag, data: encryptedPrivateKey } = encryptPrivateKey(secretBuffer);
 
-          recipient = await prisma.user.create({
-            data: {
-              email: recipientEmail,
-              sendaWalletPublicKey: keypair.publicKey.toString(),
-              encryptedPrivateKey,
-              iv,
-              authTag,
-              role: "INDIVIDUAL",
-            },
-          });
+          try {
+            recipient = await prisma.user.create({
+              data: {
+                email: recipientEmail,
+                sendaWalletPublicKey: keypair.publicKey.toString(),
+                encryptedPrivateKey,
+                iv,
+                authTag,
+                role: "GUEST",
+              },
+              select: {
+                id: true,
+                role: true,
+                sendaWalletPublicKey: true,
+                email: true,
+                name: true
+              }
+            });
+            console.log('Created new GUEST user:', recipient);
+          } catch (createError) {
+            console.error('Error creating new user:', createError);
+            throw new TRPCError({
+              code: "INTERNAL_SERVER_ERROR",
+              message: "Failed to create new user account",
+              cause: createError
+            });
+          }
+
+          try {
+            // Send invitation email for new users
+            const inviteToken = crypto.randomBytes(32).toString("hex");
+            await prisma.verificationToken.create({
+              data: {
+                identifier: recipientEmail,
+                token: inviteToken,
+                expires: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
+              },
+            });
+
+            const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+            const inviteUrl = `${baseUrl}/invitation?token=${inviteToken}`;
+
+            await sendEmail({
+              to: recipientEmail,
+              subject: `${ctx.session.user.name || "Someone"} has sent you ${amount} ${token} through Senda`,
+              html: generateInvitationEmail({
+                inviteUrl,
+                userEmail: recipientEmail,
+                amount: amount.toString(),
+                token,
+                senderName: ctx.session.user.name || "Someone",
+                hasFunds: true,
+              }),
+            });
+            console.log('Sent invitation email to new user');
+          } catch (emailError) {
+            console.error('Error sending invitation email:', emailError);
+            // Don't throw here, we want to continue with the deposit even if email fails
+          }
+        } else if (recipient.role === "GUEST") {
+          console.log('Sending invitation to existing GUEST user');
+          try {
+            // Send invitation email for existing GUEST users
+            const inviteToken = crypto.randomBytes(32).toString("hex");
+            await prisma.verificationToken.create({
+              data: {
+                identifier: recipientEmail,
+                token: inviteToken,
+                expires: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
+              },
+            });
+
+            const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+            const inviteUrl = `${baseUrl}/invitation?token=${inviteToken}`;
+
+            await sendEmail({
+              to: recipientEmail,
+              subject: `${ctx.session.user.name || "Someone"} has sent you ${amount} ${token} through Senda`,
+              html: generateInvitationEmail({
+                inviteUrl,
+                userEmail: recipientEmail,
+                amount: amount.toString(),
+                token,
+                senderName: ctx.session.user.name || "Someone",
+                hasFunds: true,
+              }),
+            });
+            console.log('Sent invitation email to existing GUEST user');
+          } catch (emailError) {
+            console.error('Error sending invitation email to GUEST:', emailError);
+            // Don't throw here, continue with deposit
+          }
+        } else {
+          console.log('Sending notification to INDIVIDUAL user');
+          try {
+            // For INDIVIDUAL users, just send a regular deposit notification
+            const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+            const dashboardUrl = `${baseUrl}/home`;
+            
+            await sendEmail({
+              to: recipientEmail,
+              subject: `${ctx.session.user.name || "Someone"} has sent you ${amount} ${token} through Senda`,
+              html: generateDepositNotificationEmail({
+                userEmail: recipientEmail,
+                amount: amount.toString(),
+                token,
+                senderName: ctx.session.user.name || "Someone",
+                dashboardUrl,
+              }),
+            });
+            console.log('Sent notification email to INDIVIDUAL user');
+          } catch (emailError) {
+            console.error('Error sending notification email:', emailError);
+            // Don't throw here, continue with deposit
+          }
         }
 
+        console.log('Looking for existing escrow between users');
         const escrow = await prisma.escrow.findFirst({
           where: {
             OR: [
@@ -241,17 +368,32 @@ export const transactionRouter = router({
           },
         });
 
-        return {
+        console.log('Found escrow:', escrow);
+
+        const result = {
           senderPublicKey: ctx.session.user.sendaWalletPublicKey,
           receiverPublicKey: recipient.sendaWalletPublicKey,
           escrowExists: !!escrow,
           escrowPublicKey: escrow?.id || null,
+          recipientRole: recipient.role,
         };
+
+        console.log('Returning result:', result);
+        return result;
+
       } catch (error) {
         console.error("Error starting deposit:", error);
+        if (error instanceof Error) {
+          console.error("Error details:", {
+            message: error.message,
+            name: error.name,
+            stack: error.stack
+          });
+        }
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
           message: "Failed to start deposit process",
+          cause: error
         });
       }
     }),
@@ -715,6 +857,51 @@ export const transactionRouter = router({
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
           message: error instanceof Error ? error.message : "Failed to withdraw funds",
+        });
+      }
+    }),
+
+  getFeePayerPublicKey: protectedProcedure
+    .mutation(async () => {
+      try {
+        const { publicKey } = loadFeePayerKeypair();
+        return { publicKey: publicKey.toBase58() };
+      } catch (error) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: error instanceof Error ? error.message : 'Failed to get fee payer public key',
+        });
+      }
+    }),
+
+  createAssociatedTokenAccount: protectedProcedure
+    .input(z.object({
+      mint: z.string(),
+      owner: z.string(),
+    }))
+    .mutation(async ({ input }) => {
+      try {
+        const { keypair: feePayerKeypair } = loadFeePayerKeypair();
+        const connection = getSharedConnection();
+        
+        const mintPubkey = new PublicKey(input.mint);
+        const ownerPubkey = new PublicKey(input.owner);
+        
+        const ata = await getOrCreateAssociatedTokenAccount(
+          connection,
+          feePayerKeypair,
+          mintPubkey,
+          ownerPubkey
+        );
+
+        return { 
+          address: ata.address.toBase58(),
+          created: ata.isInitialized !== null 
+        };
+      } catch (error) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: error instanceof Error ? error.message : 'Failed to create ATA',
         });
       }
     }),

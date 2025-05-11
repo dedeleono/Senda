@@ -50,9 +50,20 @@ export default function SendaWallet() {
     depositModalRef.current?.open()
   }
 
-  const handleDepositComplete = (transactionId: string, depositId: string) => {
-    console.log('Deposit completed:', { transactionId, depositId })
-    // You can add additional handling here
+  const handleDepositComplete = (transactionId: string, depositId: string, recipientRole?: string) => {
+    console.log('Deposit completed:', { transactionId, depositId, recipientRole })
+    
+    let message = ''
+    if (recipientRole === 'GUEST') {
+      message = 'Deposit completed. An invitation has been sent to the recipient to claim the funds.'
+    } else if (recipientRole === 'INDIVIDUAL') {
+      message = 'Deposit completed. The recipient has been notified.'
+    } else {
+      message = 'Deposit completed successfully.'
+    }
+    
+    // You can add a toast notification here with the message
+    // toast.success(message)
   }
 
   const handleOpenTransactionDetails = (transaction: any) => {
@@ -146,7 +157,6 @@ export default function SendaWallet() {
 
             <WalletQRDialog ref={walletQRDialogRef} walletAddress={sendaWalletAddress || ''} />
 
-            {/* Deposit Modal */}
             <DepositModal ref={depositModalRef} onComplete={handleDepositComplete} />
           </div>
         </Card>
