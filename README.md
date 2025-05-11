@@ -32,10 +32,6 @@ SOLANA_MAINNET_RPC="https://api.mainnet-beta.solana.com"
 # Encryption for wallet private keys
 ENCRYPTION_KEY="your-super-secret-encryption-key"
 
-# Privy
-PRIVY_APP_ID="your-privy-app-id" 
-NEXT_PUBLIC_PRIVY_APP_ID="your-privy-app-id" # Same as above for client-side access
-
 # Treasury wallet for collecting swap fees
 NEXT_PUBLIC_TREASURY_WALLET="your-treasury-wallet-public-key"
 
