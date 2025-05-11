@@ -23,7 +23,9 @@ export function loadFeePayerKeypair(): { keypair: Keypair; publicKey: PublicKey 
   }
 
   try {
-    const secretKey = Buffer.from(feePayerSecret, 'base64');
+    // Parse the array string into actual numbers
+    const secretKeyArray = JSON.parse(feePayerSecret);
+    const secretKey = Uint8Array.from(secretKeyArray);
     const keypair = Keypair.fromSecretKey(secretKey);
 
     const expectedPublicKey = process.env.NEXT_PUBLIC_FEE_PAYER_WALLET;

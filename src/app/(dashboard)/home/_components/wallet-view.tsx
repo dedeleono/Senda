@@ -130,7 +130,7 @@ export default function SendaWallet() {
             <Button
               onClick={handleOpenDepositModal}
               variant="default"
-              className="bg-[#d7dfbe] text-black font-semibold md:h-auto h-12"
+              className="bg-[#d7dfbe] text-black font-semibold md:h-auto h-12 hover:!scale-103 hover:!bg-[#d7dfbe] hover:!font-bold transition-all duration-300 cursor-pointer"
             >
               Send <ArrowUp className="h-4 w-4" />
             </Button>

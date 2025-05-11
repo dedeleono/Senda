@@ -111,7 +111,17 @@ export const useSendaProgram = create<SendaStore>()(
             })
           });
           
+          if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error?.message || 'Failed to initialize escrow');
+          }
+
           const result = await response.json();
+          
+          if (!result.data?.signature) {
+            throw new Error('No signature returned from server');
+          }
+          
           set({ 
             state: { 
               ...get().state, 
@@ -120,7 +130,11 @@ export const useSendaProgram = create<SendaStore>()(
             }
           });
           
-          return { success: true, signature: result.data.signature };
+          return { 
+            success: true, 
+            signature: result.data.signature,
+            escrowPublicKey: result.data.escrow 
+          };
         } catch (error) {
           const typedError = error instanceof Error ? error : new Error(String(error));
           set({ state: { ...get().state, isProcessing: false, lastError: typedError } });

@@ -69,41 +69,44 @@ export const sendaRouter = router({
             })
         )
         .mutation(async ({ ctx, input }) => {
-            const { program, feePayer } = getProvider();
+            try {
+                const { program, feePayer } = getProvider();
 
-            const senderPk = new PublicKey(input.sender);
-            const receiverPk = new PublicKey(input.receiver);
+                const senderPk = new PublicKey(input.sender);
+                const receiverPk = new PublicKey(input.receiver);
 
-            const { keypair: senderKp } = await loadSignerKeypair(
-                ctx.session!.user.id,
-                senderPk
-            );
+                const usdcMint = new PublicKey(USDC_MINT);
+                const usdtMint = new PublicKey(USDT_MINT);
 
-            const usdcMint = new PublicKey(USDC_MINT);
-            const usdtMint = new PublicKey(USDT_MINT);
+                // Compute PDAs & ATAs
+                const [escrowPda] = PublicKey.findProgramAddressSync(
+                    [Buffer.from("escrow"), senderPk.toBuffer(), receiverPk.toBuffer()],
+                    program.programId
+                );
 
-            // Compute PDAs & ATAs
-            const [escrowPda] = PublicKey.findProgramAddressSync(
-                [Buffer.from("escrow"), senderPk.toBuffer(), receiverPk.toBuffer()],
-                program.programId
-            );
+                const tx = await program.methods
+                    .initializeEscrow(new BN(input.seed))
+                    .accounts({
+                        feePayer: feePayer.publicKey,
+                        sender: senderPk,
+                        receiver: receiverPk,
+                        usdcMint,
+                        usdtMint,
+                    } as any)
+                    .transaction();
 
+                // Only sign with fee payer since they're paying for the account creation
+                const sig = await (program.provider as AnchorProvider).sendAndConfirm(tx, [feePayer]);
 
-            const tx = await program.methods
-                .initializeEscrow(new BN(input.seed))
-                .accounts({
-                    feePayer: feePayer.publicKey,
-                    escrow: escrowPda,
-                    sender: senderPk,
-                    receiver: receiverPk,
-                    usdcMint,
-                    usdtMint
-                } as any)
-                .transaction();
-
-            const sig = await (program.provider as AnchorProvider).sendAndConfirm(tx, [feePayer, senderKp]);
-
-            return { signature: sig, escrow: escrowPda.toBase58() };
+                return { signature: sig, escrow: escrowPda.toBase58() };
+            } catch (error) {
+                console.error('Error in initEscrow:', error);
+                throw new TRPCError({
+                    code: 'INTERNAL_SERVER_ERROR',
+                    message: error instanceof Error ? error.message : 'Failed to initialize escrow',
+                    cause: error
+                });
+            }
         }),
 
     createDeposit: protectedProcedure

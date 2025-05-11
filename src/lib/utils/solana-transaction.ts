@@ -13,12 +13,13 @@ export interface TransactionRequest {
   legacyTransaction?: boolean;
 }
 
-export interface TransactionResult {
-  success: boolean;
-  signature?: string;
-  message?: string;
-  error?: Error;
-}
+export type TransactionResult = {
+    success: boolean;
+    signature?: string;
+    error?: Error;
+    message?: string;
+    escrowPublicKey?: string;
+};
 
 export const prepareInstruction = (instruction: TransactionInstruction): any => {
   interface PreparedInstruction {
