@@ -67,38 +67,39 @@ const DepositModal = forwardRef<DepositModalRef, DepositModalProps>(
     }));
 
     return (
-      <Dialog open={isOpen} onOpenChange={(open) => {
-        if (!open) handleClose();
-        else setIsOpen(true);
-      }}>
+      <Dialog
+        open={isOpen}
+        onOpenChange={(open) => {
+          if (!open) handleClose()
+          else setIsOpen(true)
+        }}
+      >
         <DialogContent className="sm:max-w-[500px] p-0 overflow-hidden">
           <DialogHeader className="pt-6 px-6">
-            <DialogTitle className="text-2xl font-bold">
-              {stepTitles[step - 1]}
-            </DialogTitle>
+            <DialogTitle className="text-2xl font-bold">{stepTitles[step - 1]}</DialogTitle>
           </DialogHeader>
-          
+
           <div className="w-full px-6 mt-2">
             <div className="flex justify-between mb-2">
               {stepTitles.map((title, index) => (
-                <div 
+                <div
                   key={index}
                   className={`text-xs font-medium ${index + 1 === step ? 'text-primary' : 'text-gray-400'}`}
                 >
-                  Step {index + 1}
+                  {index !== 3 ? `Step ${index + 1}` : 'Confirmation'}
                 </div>
               ))}
             </div>
             <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
-              <div 
-                className="h-full bg-[#d7dfbe] transition-all duration-300 ease-in-out" 
+              <div
+                className="h-full bg-[#d7dfbe] transition-all duration-300 ease-in-out"
                 style={{ width: `${(step / stepTitles.length) * 100}%` }}
               />
             </div>
           </div>
-          
+
           <Separator className="my-4" />
-          
+
           <div className="px-6 pb-6">
             {step === 1 && <RecipientForm />}
             {step === 2 && <AmountForm />}
@@ -107,7 +108,7 @@ const DepositModal = forwardRef<DepositModalRef, DepositModalProps>(
           </div>
         </DialogContent>
       </Dialog>
-    );
+    )
   }
 );
 
