@@ -19,6 +19,7 @@ import usdtIcon from '@/public/usdt-round.svg'
 import DepositModal, { DepositModalRef } from '@/components/deposit/deposit-modal'
 import TransactionCard from '@/components/transactions/transaction-card'
 import TransactionDetails from '@/components/transactions/transaction-details'
+import { Badge } from '@/components/ui/badge'
 
 export default function SendaWallet() {
   const { isAuthenticated } = useAuth()
@@ -101,25 +102,30 @@ export default function SendaWallet() {
             </div>
           </div>
 
-          <div className="md:mt-3 mt-7 grid md:grid-cols-3 grid-cols-1 gap-2 md:w-5/6">
+          <div className="md:mt-3 mt-7 grid md:grid-cols-3 grid-cols-1 md:gap-2 gap-3 md:w-5/6">
             <Button
               onClick={handleOpenDepositModal}
               variant="default"
-              className="bg-[#d7dfbe] text-black font-semibold"
+              className="bg-[#d7dfbe] text-black font-semibold md:h-auto h-12"
             >
               Send <ArrowUp className="h-4 w-4" />
             </Button>
 
-            <Button
-              variant="default"
-              className="bg-[#f6ead7] text-black hover:bg-[#f6ead7] hover:font-bold font-semibold cursor-pointer"
-            >
-              Add Funds <PlusIcon />
-            </Button>
+            <div className="w-full relative flex items-center justify-center">
+              <Badge className="absolute -top-2 left-1/2 -translate-x-1/2 z-10 cursor-not-allowed text-[7px] rounded-sm">
+                coming soon
+              </Badge>
+              <Button
+                variant="default"
+                className="bg-[#f6ead7] text-black hover:bg-[#f6ead7] hover:font-bold font-semibold cursor-pointer w-full opacity-50 cursor-not-allowed md:h-auto h-12"
+              >
+                Add Funds <PlusIcon />
+              </Button>
+            </div>
 
             <Button
               variant="ghost"
-              className="border border-[#d7dfbe] text-black font-semibold hover:!bg-transparent hover:!scale-103 hover:!text-black hover:!border-[#d7dfbe] transition-all duration-300 cursor-pointer"
+              className="border border-[#d7dfbe] text-black font-semibold hover:!bg-transparent hover:!scale-103 hover:!text-black hover:!border-[#d7dfbe] transition-all duration-300 cursor-pointer md:h-auto h-12"
               onClick={handleOpenWalletQR}
             >
               Your Senda Wallet <Wallet className="h-4 w-4" />

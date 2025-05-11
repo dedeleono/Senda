@@ -17,7 +17,7 @@ model User {
   onboardingCompleted Boolean       @default(false)
   termsAccepted       Boolean       @default(false)
   legalDeclaration    Boolean       @default(false)
-  role                UserRole      @default(INDIVIDUAL) //@todo add TEMPORARY_VERIFIED role and change it when users create their account, which would be by verifying their email
+  role                UserRole      @default(INDIVIDUAL)
   firstname           String?
   lastname            String?
   phoneNumber         String?
@@ -32,7 +32,6 @@ model User {
   authTag              String
   linkedWallets        LinkedWallet[]
 
-  //Privy On-Ramp
   fiatFundingTransactions      FiatFunding[]
   onChainTransactions          Transaction[]
   deposits DepositRecord[]
@@ -286,6 +285,7 @@ enum SignatureType {
 
 enum UserRole {
   INDIVIDUAL
+  GUEST
 }
 
 model Escrow {
