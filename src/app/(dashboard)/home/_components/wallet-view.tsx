@@ -28,7 +28,7 @@ export default function SendaWallet() {
   const { sendaWalletPublicKey } = useSendaWallet()
   const sendaWalletAddress = sendaWalletPublicKey?.toString() || null
   
-  const { isLoading, error, balances } = useWalletBalances(null)
+  const { balancesLoading, error, balances } = useWalletBalances(null)
   
   const [selectedTransaction, setSelectedTransaction] = useState<any>(null)
   const [isTransactionDetailsOpen, setIsTransactionDetailsOpen] = useState(false)
