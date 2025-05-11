@@ -83,7 +83,8 @@ export default function SendaWallet() {
             <div className="flex flex-col space-y-3">
               {/* Total Balance */}
               <h2 className="md:text-4xl text-3xl font-bold text-black text-nowrap">
-                ${totalBalance.toFixed(0)}<small className="text-gray-500 text-xs ml-1">USD</small>
+                ${totalBalance.toFixed(0)}
+                <small className="text-gray-500 text-xs ml-1">USD</small>
               </h2>
 
               <div className="flex gap-2 items-center -ml-3">
@@ -101,7 +102,7 @@ export default function SendaWallet() {
                     <span className={`text-gray-700 ${token.symbol === 'USDC' ? '-ml-3.5' : 'text-gray-500'}`}>
                       <span className="font-medium text-lg">
                         {token.uiBalance.toFixed(0)}
-                        <span className="text-gray-500 text-xs">{token.symbol}</span>
+                        <small className="text-gray-500 text-[10px] ml-1">{token.symbol}</small>
                       </span>
                     </span>
                   </div>
@@ -146,10 +147,7 @@ export default function SendaWallet() {
             <WalletQRDialog ref={walletQRDialogRef} walletAddress={sendaWalletAddress || ''} />
 
             {/* Deposit Modal */}
-            <DepositModal
-              ref={depositModalRef}
-              onComplete={handleDepositComplete}
-            />
+            <DepositModal ref={depositModalRef} onComplete={handleDepositComplete} />
           </div>
         </Card>
 
