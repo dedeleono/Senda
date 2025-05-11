@@ -84,7 +84,6 @@ export function Wallet({ children, userWalletPublicKey }: WalletProps) {
       <WalletProvider wallets={wallets} autoConnect={false} onError={onError}>
         <WalletModalProvider>
           <SendaWalletAutoConnect userWalletPublicKey={userWalletPublicKey} />
-          <ExternalWalletSync />
           {children}
         </WalletModalProvider>
       </WalletProvider>
@@ -93,27 +92,3 @@ export function Wallet({ children, userWalletPublicKey }: WalletProps) {
 }
 
 export default Wallet
-
-// Synchronises the global Senda store with the externally-connected wallet (Phantom, Solflare, etc.)
-const ExternalWalletSync = () => {
-  const walletCtx = useWallet();
-  const store = useSendaProgram();
-
-  useEffect(() => {
-    // If an external wallet gets connected, reinit the Senda program with it.
-    if (walletCtx.connected && walletCtx.wallet && walletCtx.publicKey) {
-      (async () => {
-        try {
-          await store.reinitState(walletCtx as unknown as AnchorWallet,);
-        } catch (e) {
-          console.error('Failed to reinit Senda store with external wallet', e);
-        }
-      })();
-    } else if (!walletCtx.connected) {
-      // External wallet disconnected – reset the program to read-only mode
-      store.resetState();
-    }
-  }, [walletCtx.connected, walletCtx.wallet, walletCtx.publicKey, store]);
-
-  return null;
-};

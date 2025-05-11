@@ -43,7 +43,6 @@ export interface SendaStore {
   requestWithdrawal: (params: ReleaseParams) => Promise<TransactionResult>;
 
   resetState: () => void;
-  reinitState: (externalWallet?: AnchorWallet) => Promise<void>;
 }
 
 export const useSendaProgram = create<SendaStore>((set, get) => ({
@@ -854,15 +853,5 @@ export const useSendaProgram = create<SendaStore>((set, get) => ({
         lastError: null,
       }
     });
-  },
-
-  /**
-   * Force a re-initialisation of the store with a (potentially) different wallet.
-   * This first resets the state, then delegates to `initState`.
-   */
-  reinitState: async (externalWallet?: AnchorWallet) => {
-    const { resetState, initState } = get();
-    resetState();
-    await initState(externalWallet);
   }
 }));
