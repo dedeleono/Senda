@@ -4,9 +4,11 @@ import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { ArrowRight, Mail, Check, Loader2, AlertCircle, Info } from 'lucide-react';
+import { Mail, Check, Loader2, AlertCircle, Info, ArrowRight } from 'lucide-react';
 import { useDepositStore } from '@/stores/use-deposit-store';
 import { trpc } from '@/app/_trpc/client';
+import { useDebounce } from '@/hooks/use-debounce';
+import { UserRole } from '@prisma/client';
 
 const RecipientForm = () => {
   const [email, setEmail] = useState('');
@@ -14,10 +16,18 @@ const RecipientForm = () => {
   const [errorMessage, setErrorMessage] = useState('');
   const [isValid, setIsValid] = useState(false);
   
-  // Get user query
-  const userQuery = trpc.userRouter.getUserByEmail.useQuery(
-    { email: email },
-    { enabled: false }
+  // Debounce the email value
+  const debouncedEmail = useDebounce(email, 700);
+  
+  // Get user query with proper enabled state
+  const { refetch: refetchUser } = trpc.userRouter.getUserByEmail.useQuery(
+    { email: debouncedEmail },
+    { 
+      enabled: false,
+      retry: false,
+      staleTime: 0,
+      gcTime: 0
+    }
   );
   
   // Access deposit store
@@ -38,57 +48,74 @@ const RecipientForm = () => {
   const validateEmail = (email: string) => {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
   };
+
+  // Handle all validation when debounced email changes
+  useEffect(() => {
+    let isSubscribed = true;
+
+    const validate = async () => {
+      if (!debouncedEmail) {
+        setErrorMessage('');
+        setIsValid(false);
+        return;
+      }
+
+      if (!validateEmail(debouncedEmail)) {
+        setErrorMessage('Please enter a valid email address');
+        setIsValid(false);
+        return;
+      }
+
+      setIsValidating(true);
+      
+      try {
+        const result = await refetchUser();
+        
+        if (!isSubscribed) return;
+
+        const exists = result.data?.role === "GUEST" as UserRole;
+        
+        updateFormData({
+          recipient: {
+            email: debouncedEmail,
+            exists,
+          },
+        });
+        
+        setIsValid(true);
+        setErrorMessage('');
+      } catch (error) {
+        if (!isSubscribed) return;
+        console.error('Error validating email:', error);
+        setErrorMessage('Failed to validate email. Please try again.');
+        setIsValid(false);
+      } finally {
+        if (isSubscribed) {
+          setIsValidating(false);
+        }
+      }
+    };
+
+    validate();
+
+    return () => {
+      isSubscribed = false;
+    };
+  }, [debouncedEmail, refetchUser, updateFormData]);
   
   const handleEmailChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newEmail = e.target.value;
     setEmail(newEmail);
-    setErrorMessage('');
     setIsValid(false);
-  };
-  
-  const handleValidate = async () => {
-    if (!email) {
-      setErrorMessage('Email is required');
-      return;
-    }
-    
-    if (!validateEmail(email)) {
-      setErrorMessage('Please enter a valid email address');
-      return;
-    }
-    
-    setIsValidating(true);
-    
-    try {
-      // Check if recipient exists using the query
-      const result = await userQuery.refetch();
-      const exists = !!result.data?.id;
-      
-      // Update form data
-      updateFormData({
-        recipient: {
-          email,
-          exists,
-        },
-      });
-      
-      setIsValid(true);
-    } catch (error) {
-      console.error('Error validating email:', error);
-      setErrorMessage('Failed to validate email. Please try again.');
-    } finally {
-      setIsValidating(false);
-    }
   };
   
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!isValid) {
-      await handleValidate();
-      if (!isValid) return;
+    if (!email) {
+      setErrorMessage('Email is required');
+      return;
     }
-    
+    if (!isValid) return;
     nextStep();
   };
   
@@ -105,43 +132,12 @@ const RecipientForm = () => {
               className={`pl-10 ${errorMessage ? 'border-red-500' : ''}`}
               value={email}
               onChange={handleEmailChange}
-              disabled={isValidating || isValid}
+              disabled={isValidating}
             />
             <Mail className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
             {isValid && <Check className="absolute right-3 top-2.5 h-5 w-5 text-green-500" />}
+            {isValidating && <Loader2 className="absolute right-3 top-2.5 h-5 w-5 animate-spin" />}
           </div>
-          
-          {!isValid && (
-            <Button 
-              type="button" 
-              variant="outline" 
-              className="ml-2" 
-              onClick={handleValidate}
-              disabled={isValidating || !email}
-            >
-              {isValidating ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Validate'}
-            </Button>
-          )}
-          
-          {isValid && (
-            <Button 
-              type="button" 
-              variant="outline" 
-              className="ml-2" 
-              onClick={() => {
-                setIsValid(false);
-                setEmail('');
-                updateFormData({
-                  recipient: {
-                    email: '',
-                    exists: false,
-                  },
-                });
-              }}
-            >
-              Change
-            </Button>
-          )}
         </div>
         
         {errorMessage && (
@@ -170,7 +166,7 @@ const RecipientForm = () => {
         <Button 
           type="submit" 
           className="flex items-center" 
-          disabled={!isValid}
+          disabled={!isValid || isValidating}
         >
           Next <ArrowRight className="ml-2 h-4 w-4" />
         </Button>

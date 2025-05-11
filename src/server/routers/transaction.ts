@@ -204,6 +204,7 @@ export const transactionRouter = router({
       try {
         let recipient = await prisma.user.findUnique({
           where: { email: recipientEmail },
+          select: { id: true, role: true, sendaWalletPublicKey: true }
         });
 
         if (!recipient) {

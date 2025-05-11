@@ -1,8 +1,7 @@
 
-import { router, publicProcedure, protectedProcedure } from "../trpc";
+import { router, protectedProcedure } from "../trpc";
 import { prisma } from "@/lib/db";
 import { z } from "zod";
-import { TRPCError } from "@trpc/server";
 import { Keypair } from "@solana/web3.js";
 import { encryptPrivateKey } from "@/lib/utils/crypto";
 
@@ -11,7 +10,7 @@ const userRouter = router({
         return prisma.user.findUnique({ where: { id: input.userId }, select: { email: true, sendaWalletPublicKey: true, iv: true, authTag: true, encryptedPrivateKey: true } });
     }),
     getUserByEmail: protectedProcedure.input(z.object({ email: z.string() })).query(async ({ input }) => {
-        return prisma.user.findUnique({ where: { email: input.email }, select: { id: true } });
+        return prisma.user.findUnique({ where: { email: input.email }, select: { id: true, role: true } });
     }),
     createMinimalUser: protectedProcedure.input(z.object({ recipientEmail: z.string().email() })).mutation(async ({ input }) => {
         const { recipientEmail } = input;
@@ -27,7 +26,7 @@ const userRouter = router({
                 encryptedPrivateKey,
                 iv,
                 authTag,
-                role: "INDIVIDUAL",
+                role: "GUEST",
             },
         });
         return newUser;
