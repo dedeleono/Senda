@@ -13,7 +13,7 @@ use crate::state::{Escrow, DepositRecord, DepositState, Stable, SignaturePolicy,
 #[instruction(stable: Stable, authorization: AuthorizedBy)]
 pub struct Deposit<'info> {
     #[account(mut, seeds = [b"escrow", escrow.sender.as_ref(), escrow.receiver.as_ref()], bump = escrow.bump)]
-    pub escrow: Account<'info, Escrow>,
+    pub escrow: Box<Account<'info, Escrow>>,
 
     #[account(mut)]
     pub depositor: Signer<'info>,
@@ -102,7 +102,7 @@ pub struct Deposit<'info> {
         seeds = [b"deposit", escrow.key().as_ref(), escrow.deposit_count.to_le_bytes().as_ref()],
         bump,
     )]
-    pub deposit_record: Account<'info, DepositRecord>,
+    pub deposit_record: Box<Account<'info, DepositRecord>>,
 
     pub associated_token_program: Program<'info, AssociatedToken>,
     pub token_program: Program<'info, Token>,

@@ -25,9 +25,7 @@ import { getProvider, loadSignerKeypair } from "@/utils/dapp-wallets";
 
 
 export const sendaRouter = router({
-    // ──────────────────────────────────────────────────────────────────────────
-    // READ-ONLY helpers – keep business logic in the front-end store
-    // ──────────────────────────────────────────────────────────────────────────
+    
     getFactoryStats: publicProcedure
         .input(z.object({ owner: z.string().optional() }))
         .query(async ({ input }) => {
