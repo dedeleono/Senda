@@ -13,7 +13,6 @@ import Image from 'next/image'
 import WalletQRDialog, { WalletQRDialogRef } from './wallet-qr-dialog'
 import { useWalletBalances } from '@/hooks/use-wallet-balances'
 import { useSendaWallet } from '@/hooks/use-senda-wallet'
-import { getSendaWalletPublicKey } from '@/lib/services/wallet'
 import usdcIcon from '@/public/usdc.svg'
 import usdtIcon from '@/public/usdt-round.svg'
 import DepositModal, { DepositModalRef } from '@/components/deposit/deposit-modal'
@@ -25,9 +24,9 @@ export default function SendaWallet() {
   const { isAuthenticated } = useAuth()
   const walletQRDialogRef = useRef<WalletQRDialogRef>(null)
   const depositModalRef = useRef<DepositModalRef>(null)
-  
-  const { sendaWalletPublicKey } = useSendaWallet()
-  const sendaWalletAddress = sendaWalletPublicKey?.toString() || null
+
+  const { connected, publicKey } = useSendaWallet()
+  const sendaWalletAddress = publicKey?.toString() || null
   
   const { isLoading, error, balances } = useWalletBalances(null)
   
@@ -117,7 +116,7 @@ export default function SendaWallet() {
               </Badge>
               <Button
                 variant="default"
-                className="bg-[#f6ead7] text-black hover:bg-[#f6ead7] hover:font-bold font-semibold cursor-pointer w-full opacity-50 cursor-not-allowed md:h-auto h-12"
+                className="bg-[#f6ead7] text-black hover:bg-[#f6ead7] hover:font-bold font-semibold w-full opacity-50 cursor-not-allowed md:h-auto h-12"
               >
                 Add Funds <PlusIcon />
               </Button>

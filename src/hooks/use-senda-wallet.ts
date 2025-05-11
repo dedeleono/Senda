@@ -1,80 +1,48 @@
-'use client';
 
-import { useEffect, useState, useRef } from 'react';
-import { useWallet } from '@solana/wallet-adapter-react';
-import { useAuth } from '@/hooks/use-auth';
-import { PublicKey } from '@solana/web3.js';
-import { getSendaWalletPublicKey, isSendaWalletConnected, loadKeypair } from '@/lib/services/wallet';
+"use client";
 
-interface SendaWalletHook {
-  isSendaWalletConnected: boolean;
-  sendaWalletPublicKey: PublicKey | null;
-  isLoading: boolean;
-  error: Error | null;
-  connectSendaWallet: () => Promise<boolean>;
-}
+import { useEffect, useState } from "react";
+import { PublicKey } from "@solana/web3.js";
+import { initWalletAdapter, loadKeypair, KeypairWalletAdapter } from "@/lib/services/wallet";
 
-export function useSendaWallet(): SendaWalletHook {
-  const { session } = useAuth();
-  const { connected, publicKey: externalWalletPublicKey } = useWallet();
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
-  const initialized = useRef(false);
-  
-  // Get the state from the wallet service
-  const sendaWalletConnected = isSendaWalletConnected();
-  const sendaWalletPublicKey = getSendaWalletPublicKey();
+export function useSendaWallet(sendaPubkey?: string) {
+  const [adapter, setAdapter] = useState<KeypairWalletAdapter | null>(null);
+  const [publicKey, setPublicKey] = useState<PublicKey | null>(null);
+  const [connected, setConnected] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  // Connect to the Senda wallet when the session is available
   useEffect(() => {
-    // Only initialize once
-    if (initialized.current) return;
     
-    if (session?.user?.sendaWalletPublicKey && !sendaWalletConnected) {
-      initialized.current = true;
-      // Log the state before connecting
-      console.log("Initializing Senda wallet connection", {
-        externalWalletConnected: connected,
-        externalWalletPublicKey: externalWalletPublicKey?.toString(),
-        sendaWalletPublicKey: session.user.sendaWalletPublicKey,
-        hasSendaWalletPublicKey: !!sendaWalletPublicKey
+    if (!sendaPubkey) {
+      setAdapter(null);
+      setPublicKey(null);
+      setConnected(false);
+      return;
+    }
+
+    setLoading(true);
+    const wa = initWalletAdapter(sendaPubkey);
+    setAdapter(wa as KeypairWalletAdapter);
+
+    // 3) load (decrypt + attach) the private key and connect
+    loadKeypair()
+      .then((ok) => {
+        if (ok) {
+          setPublicKey(wa.publicKey);   // expose the PublicKey
+          setConnected(true);
+        } else {
+          setPublicKey(null);
+          setConnected(false);
+        }
+      })
+      .catch(() => {
+        setPublicKey(null);
+        setConnected(false);
+      })
+      .finally(() => {
+        setLoading(false);
       });
-      
-      connectSendaWallet();
-    }
-  }, [session?.user?.sendaWalletPublicKey, sendaWalletConnected, connected, externalWalletPublicKey]);
+  }, [sendaPubkey]);
 
-  const connectSendaWallet = async (): Promise<boolean> => {
-    if (!session?.user?.sendaWalletPublicKey) {
-      setError(new Error('No Senda wallet public key available in session'));
-      return false;
-    }
-
-    try {
-      setIsLoading(true);
-      const success = await loadKeypair();
-      
-      if (success) {
-        console.log("✅ Senda wallet connected:", getSendaWalletPublicKey()?.toString());
-      } else {
-        throw new Error('Failed to connect Senda wallet');
-      }
-      
-      setIsLoading(false);
-      return true;
-    } catch (err) {
-      console.error("❌ Failed to connect Senda wallet:", err);
-      setError(err instanceof Error ? err : new Error('Failed to connect Senda wallet'));
-      setIsLoading(false);
-      return false;
-    }
-  };
-
-  return {
-    isSendaWalletConnected: sendaWalletConnected,
-    sendaWalletPublicKey: sendaWalletPublicKey,
-    isLoading,
-    error,
-    connectSendaWallet
-  };
-} 
+  return { adapter, publicKey, connected, loading };
+}
