@@ -42,4 +42,4 @@ next-env.d.ts
 
 # wallets
 Turbin3-wallet.json
-*.lock
+yarn.lock
