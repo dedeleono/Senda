@@ -46,15 +46,14 @@ export const useWalletStore = create<WalletStore>((set, get) => ({
   initWallet: async (userId: string, publicKeyStr: string) => {
     try {
       set({ isLoading: true, error: null });
+      console.log('Initializing wallet for user:', userId);
 
-      // Validate public key format
       try {
         new PublicKey(publicKeyStr);
       } catch (error) {
         throw new Error('Invalid wallet public key format');
       }
 
-      // 1. Get the user's keypair from the backend
       const res = await fetch('/api/user-wallet', {
         method: 'POST',
         body: JSON.stringify({ userId }),
@@ -63,7 +62,8 @@ export const useWalletStore = create<WalletStore>((set, get) => ({
       });
 
       if (!res.ok) {
-        throw new Error(`Failed to fetch wallet: ${res.status}`);
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(`Failed to fetch wallet: ${res.status} - ${errorData.error || 'Unknown error'}`);
       }
 
       const { encryptedPrivateKey, iv, authTag } = await res.json() as {
@@ -72,8 +72,7 @@ export const useWalletStore = create<WalletStore>((set, get) => ({
         authTag: string;
       };
 
-      // 2. Decrypt the private key
-      const dec = await fetch('/api/decrypt', {
+      const decRes = await fetch('/api/decrypt', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -86,17 +85,23 @@ export const useWalletStore = create<WalletStore>((set, get) => ({
         }),
       });
 
-      if (!dec.ok) {
-        throw new Error('Failed to decrypt key');
+      if (!decRes.ok) {
+        const errorData = await decRes.json().catch(() => ({}));
+        throw new Error(`Failed to decrypt key: ${decRes.status} - ${errorData.error || 'Unknown error'}`);
       }
 
-      const { decrypted } = await dec.json() as { decrypted: string };
+      const { decrypted, success } = await decRes.json() as { decrypted: string; success: boolean };
       
+      if (!success || !decrypted) {
+        throw new Error('Decryption failed - no decrypted data received');
+      }
+
       let keypair: Keypair;
       try {
         keypair = Keypair.fromSecretKey(Buffer.from(decrypted, 'base64'));
       } catch (error) {
-        throw new Error('Invalid private key format');
+        console.error('Error creating keypair:', error);
+        throw new Error('Invalid private key format after decryption');
       }
 
       // Verify the keypair matches the public key
@@ -114,6 +119,7 @@ export const useWalletStore = create<WalletStore>((set, get) => ({
         error: null
       });
 
+      console.log('Wallet successfully initialized for:', keypair.publicKey.toString());
       await get().fetchBalances();
 
     } catch (error) {
@@ -125,6 +131,7 @@ export const useWalletStore = create<WalletStore>((set, get) => ({
         keypair: null,
         connection: null,
       });
+      throw error;
     }
   },
 
@@ -133,33 +140,33 @@ export const useWalletStore = create<WalletStore>((set, get) => ({
     if (!connection || !publicKey) return;
 
     try {
-      set({ isLoading: true });
-
       // const isMainnet = process.env.NEXT_PUBLIC_SOLANA_NETWORK === 'mainnet';
       const network = 'devnet';
       const mints = NETWORK_MINTS[network];
 
-      const balances = { USDC: 0, USDT: 0 };
+      const usdcMint = new PublicKey(mints.USDC);
+      const usdtMint = new PublicKey(mints.USDT);
 
-      for (const [symbol, mintAddress] of Object.entries(mints)) {
-        try {
-          const mintPubkey = new PublicKey(mintAddress);
-          const tokenAccount = await getAssociatedTokenAddress(
-            mintPubkey,
-            publicKey
-          );
+      const [usdcAta, usdtAta] = await Promise.all([
+        getAssociatedTokenAddress(usdcMint, publicKey),
+        getAssociatedTokenAddress(usdtMint, publicKey)
+      ]);
 
-          const accountInfo = await connection.getTokenAccountBalance(tokenAccount);
-          balances[symbol as keyof typeof balances] = accountInfo.value.uiAmount || 0;
-        } catch (err) {
-          console.error(`Error fetching ${symbol} balance:`, err);
+      const accounts = await connection.getMultipleAccountsInfo([usdcAta, usdtAta]);
+      
+      const balances = {
+        USDC: accounts[0]?.data.readBigInt64LE(64) || BigInt(0),
+        USDT: accounts[1]?.data.readBigInt64LE(64) || BigInt(0)
+      };
+
+      set({
+        balances: {
+          USDC: Number(balances.USDC) / 1_000_000,
+          USDT: Number(balances.USDT) / 1_000_000
         }
-      }
-
-      set({ balances, isLoading: false });
+      });
     } catch (error) {
       console.error('Error fetching balances:', error);
-      set({ error: error instanceof Error ? error : new Error(String(error)), isLoading: false });
     }
   },
 

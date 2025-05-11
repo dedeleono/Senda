@@ -3,13 +3,16 @@
 import { useSession } from 'next-auth/react';
 import { useEffect, useState } from 'react';
 import { useWalletStore } from '@/stores/use-wallet-store';
+import { useSendaProgram } from '@/stores/use-senda-program';
 
 export function useAuth() {
   const { data: session, status } = useSession();
   const { initWallet, publicKey, error: walletError } = useWalletStore();
+  const { initState: initSendaProgram } = useSendaProgram();
   const [isInitializingWallet, setIsInitializingWallet] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
 
-  // Initialize wallet when user logs in
+  // Initialize when user logs in
   useEffect(() => {
     const initializeWallet = async () => {
       if (!session?.user?.id || !session?.user?.sendaWalletPublicKey) {
@@ -19,29 +22,31 @@ export function useAuth() {
 
       try {
         setIsInitializingWallet(true);
-        await initWallet(session.user.id, session.user.sendaWalletPublicKey);
+        setError(null);
+        
+        console.log('Initializing Senda wallet for authenticated user:', session.user.sendaWalletPublicKey);
+        
+        await initWallet(session.user.id, session.user.sendaWalletPublicKey)
+        await initSendaProgram();
+        
+        console.log('Wallet and Senda program initialized successfully');
       } catch (error) {
-        console.error('Failed to initialize wallet:', error);
+        console.error('Error during wallet initialization:', error);
+        setError(error instanceof Error ? error : new Error(String(error)));
       } finally {
         setIsInitializingWallet(false);
       }
     };
 
-    if (
-      status === 'authenticated' && 
-      session?.user?.id &&
-      session?.user?.sendaWalletPublicKey && 
-      !publicKey && 
-      !isInitializingWallet
-    ) {
-      console.log('Initializing Senda wallet for authenticated user:', session.user.sendaWalletPublicKey);
+    if (status === 'authenticated' && !publicKey) {
       initializeWallet();
     }
-  }, [status, session?.user?.id, session?.user?.sendaWalletPublicKey, publicKey, isInitializingWallet]);
+  }, [status, session?.user?.id, session?.user?.sendaWalletPublicKey, publicKey, initWallet, initSendaProgram]);
 
   return {
+    isInitializingWallet,
+    error: error || walletError,
     isAuthenticated: status === 'authenticated',
-    isLoading: status === 'loading' || isInitializingWallet,
     session,
     userId: session?.user?.id,
     walletError,
