@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { PublicKey, Connection } from '@solana/web3.js';
 import { getAssociatedTokenAddress } from '@solana/spl-token';
-import { getSendaWalletPublicKey } from '@/lib/services/wallet';
+import { useSendaWallet } from '@/hooks/use-senda-wallet';
 
 const NETWORK_MINTS = {
     mainnet: {
@@ -40,7 +40,8 @@ export function useWalletBalances(
     const [balances, setBalances] = useState<TokenBalance[]>([]);
 
     // Try to use the provided wallet, or fall back to the connected Senda wallet
-    const effectiveWalletPublicKey = walletPublicKey || getSendaWalletPublicKey()?.toString() || null;
+    const { publicKey } = useSendaWallet();
+    const effectiveWalletPublicKey = walletPublicKey || publicKey?.toString() || null;
 
     const isMainnet = process.env.NEXT_PUBLIC_SOLANA_NETWORK === 'mainnet';
     const network = isMainnet ? 'mainnet' : 'devnet';

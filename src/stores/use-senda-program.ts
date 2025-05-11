@@ -1,134 +1,20 @@
 import { create } from 'zustand';
-import { clusterApiUrl, Connection, PublicKey, Transaction, TransactionInstruction, Keypair, VersionedTransaction } from '@solana/web3.js';
-import { AnchorProvider, getProvider, Program, Provider, setProvider } from '@coral-xyz/anchor';
+import { Connection, PublicKey, TransactionInstruction } from '@solana/web3.js';
+import { AnchorProvider, Program, Provider, setProvider, Idl } from '@coral-xyz/anchor';
 import { SendaDapp } from '../lib/IDL';
 import { AnchorWallet } from '@solana/wallet-adapter-react';
 import { executeTransaction, TransactionResult } from '@/lib/utils/solana-transaction';
-import { trpc } from '@/app/_trpc/client';
 import { getProgramId } from '@/utils/common';
-import { getWalletAdapter, isSendaWalletConnected } from '@/lib/services/wallet';
 import { USDC_MINT, USDT_MINT } from '@/lib/constants';
 import { ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { FactoryStats, EscrowStats, InitEscrowParams, DepositParams, CancelParams, ReleaseParams, EscrowState } from '@/types/senda-program';
+import { findFactoryPDA, findMintAuthPDA, findEscrowPDA, findVaultPDA, findDepositRecordPDA, getSharedConnection, createInstructionData } from '@/lib/senda/helpers';
+import { getWalletAdapter, isSendaWalletConnected } from '@/lib/services/wallet';
+import { SENDA_IDL } from '../lib/IDL/sendaIDL';
 
 // Constants for Solana system programs
 const SYSTEM_PROGRAM_ID = new PublicKey("11111111111111111111111111111111");
 const SYSVAR_RENT_PUBKEY = new PublicKey("SysvarRent111111111111111111111111111111111");
-
-// Helper functions for PDA derivation
-export const findFactoryPDA = (owner: PublicKey, programId: PublicKey): [PublicKey, number] => {
-  return PublicKey.findProgramAddressSync(
-    [Buffer.from("factory"), owner.toBuffer()],
-    programId
-  );
-};
-
-export const findMintAuthPDA = (factoryPda: PublicKey, programId: PublicKey): [PublicKey, number] => {
-  return PublicKey.findProgramAddressSync(
-    [Buffer.from("mint_auth"), factoryPda.toBuffer()],
-    programId
-  );
-};
-
-export const findEscrowPDA = (
-  sender: PublicKey, 
-  receiver: PublicKey, 
-  programId: PublicKey
-): [PublicKey, number] => {
-  return PublicKey.findProgramAddressSync(
-    [Buffer.from("escrow"), sender.toBuffer(), receiver.toBuffer()],
-    programId
-  );
-};
-
-export const findVaultPDA = (
-  escrowPda: PublicKey,
-  mint: PublicKey,
-  stableStr: string,
-  programId: PublicKey
-): [PublicKey, number] => {
-  return PublicKey.findProgramAddressSync(
-    [Buffer.from(`${stableStr}-vault`), escrowPda.toBuffer(), mint.toBuffer()],
-    programId
-  );
-};
-
-export const findDepositRecordPDA = (
-  escrowPda: PublicKey,
-  depositIdx: number,
-  programId: PublicKey
-): [PublicKey, number] => {
-  // Create a buffer for the deposit index
-  const depositIdxBuf = Buffer.alloc(8);
-  try {
-    // Try the BigInt approach first (Node.js)
-    depositIdxBuf.writeBigUInt64LE(BigInt(depositIdx), 0);
-  } catch (error) {
-    // Fallback method for environments that don't support writeBigUInt64LE
-    const view = new DataView(new ArrayBuffer(8));
-    view.setUint32(0, depositIdx, true); // Little-endian, lower 32 bits
-    view.setUint32(4, 0, true);         // Little-endian, upper 32 bits (zero)
-    
-    // Copy the ArrayBuffer to our Buffer
-    Buffer.from(new Uint8Array(view.buffer)).copy(depositIdxBuf);
-  }
-  
-  return PublicKey.findProgramAddressSync(
-    [Buffer.from("deposit"), escrowPda.toBuffer(), depositIdxBuf],
-    programId
-  );
-};
-
-// Helper for creating instruction data with discriminator
-export const createInstructionData = (
-  discriminator: number[],
-  ...args: Array<{ type: 'u8' | 'u64' | 'pubkey', value: number | PublicKey }>
-): Buffer => {
-  // Calculate total size: 8 bytes for discriminator + args
-  let totalSize = 8;
-  for (const arg of args) {
-    switch (arg.type) {
-      case 'u8': totalSize += 1; break;
-      case 'u64': totalSize += 8; break;
-      case 'pubkey': totalSize += 32; break;
-    }
-  }
-  
-  const data = Buffer.alloc(totalSize);
-  
-  // Copy discriminator
-  Buffer.from(discriminator).copy(data, 0);
-  
-  // Handle additional data
-  let offset = 8;
-  for (const arg of args) {
-    switch (arg.type) {
-      case 'u8':
-        data.writeUInt8(arg.value as number, offset);
-        offset += 1;
-        break;
-      case 'u64':
-        try {
-          // Try the BigInt approach first
-          data.writeBigUInt64LE(BigInt(arg.value as number), offset);
-        } catch (error) {
-          // Fallback method
-          const view = new DataView(new ArrayBuffer(8));
-          view.setUint32(0, arg.value as number, true); // Lower 32 bits
-          view.setUint32(4, 0, true);                  // Upper 32 bits
-          Buffer.from(new Uint8Array(view.buffer)).copy(data, offset);
-        }
-        offset += 8;
-        break;
-      case 'pubkey':
-        (arg.value as PublicKey).toBuffer().copy(data, offset);
-        offset += 32;
-        break;
-    }
-  }
-  
-  return data;
-};
 
 interface SendaProgramState {
   wallet: AnchorWallet | null;
@@ -142,10 +28,7 @@ export interface SendaStore {
   stats: FactoryStats | null;
   state: SendaProgramState;
 
-  initState: (options: { 
-    externalWallet?: AnchorWallet; 
-    userId: string;
-  }) => Promise<void>;
+  initState: (externalWallet?: AnchorWallet) => Promise<void>;
   
   getFactoryStats: () => Promise<FactoryStats | null>;
   getEscrowStats: (escrowPublicKey: PublicKey) => Promise<EscrowStats | null>;
@@ -160,50 +43,48 @@ export interface SendaStore {
   requestWithdrawal: (params: ReleaseParams) => Promise<TransactionResult>;
 
   resetState: () => void;
+  reinitState: (externalWallet?: AnchorWallet) => Promise<void>;
 }
 
 export const useSendaProgram = create<SendaStore>((set, get) => ({
   // Base state
   program: null,
   stats: {} as FactoryStats,
-  state: {} as SendaProgramState,
+  state: {
+    wallet: null,
+    connection: null,
+    isProcessing: false,
+    lastError: null,
+  } as SendaProgramState,
   
-  initState: async (options: { 
-    externalWallet?: AnchorWallet; 
-    userId: string;
-  }) => {
-    console.log('Initializing Senda Program with options:', { 
-      externalWallet: !!options.externalWallet,
-      userId: options.userId 
-    });
-
+  initState: async (externalWallet?: AnchorWallet) => {
+    const { program: existingProgram } = get();
+    if (existingProgram) {
+      console.log('[useSendaProgram] initState called but program is already initialized – skipping');
+      return;
+    }
     let provider: Provider;
     let connection: Connection;
     let wallet: AnchorWallet | undefined = undefined;
     const programId = getProgramId();
-    
-    console.log('Using Program ID:', programId);
-
-    // Always create a new connection
-    connection = new Connection(
-      process.env.NEXT_PUBLIC_SOLANA_RPC || clusterApiUrl("devnet")
-    );
-    console.log('Created connection to:', process.env.NEXT_PUBLIC_SOLANA_RPC || clusterApiUrl("devnet"));
+  
+    connection = getSharedConnection();
     
     try {
-      const isConnected = isSendaWalletConnected();
-      const sendaWallet = getWalletAdapter();
-      
-      if (isConnected && sendaWallet && sendaWallet.publicKey) {
-        console.log('Using connected Senda wallet:', sendaWallet.publicKey.toString());
-        wallet = sendaWallet as unknown as AnchorWallet;
-      }
-      else if (options.externalWallet) {
+      if (externalWallet) {
         console.log('Using provided external wallet');
-        wallet = options.externalWallet;
-      } 
-      else if (options.userId) {
-        console.log('Attempting to use userId wallet - userId is available, but we will proceed with a limited provider for read-only operations');
+        wallet = externalWallet;
+      } else if (isSendaWalletConnected()) {
+        const sendaWallet = getWalletAdapter();
+        if (sendaWallet && sendaWallet.publicKey) {
+          console.log('Using existing connected Senda wallet:', sendaWallet.publicKey.toString());
+          wallet = sendaWallet as unknown as AnchorWallet;
+        }
+      }
+
+      if (!wallet) {
+       
+        console.log('No wallet supplied or connected – proceeding in read-only mode');
       }
       
       if (wallet) {
@@ -236,7 +117,6 @@ export const useSendaProgram = create<SendaStore>((set, get) => ({
     } catch (error) {
       console.error('Error during wallet setup:', error);
       
-      // Fall back to a limited provider
       provider = {
         connection: connection as any,
         send: async () => {
@@ -254,61 +134,33 @@ export const useSendaProgram = create<SendaStore>((set, get) => ({
       
       setProvider(provider);
     }
-    
-    console.log('Creating program with ID:', programId);
+
     try {
-      
-      const { SENDA_IDL } = require('../lib/IDL/sendaIDL');
-      const programPubkey = new PublicKey(programId);
-      
-      const program = {
-        programId: programPubkey,
-        provider: provider,
-        idl: SENDA_IDL,
-        rpc: {},
-        account: {},
-        coder: {
-          instruction: {
-            encode: () => {
-              throw new Error("Not implemented");
-            }
-          },
-          accounts: {
-            decode: () => {
-              throw new Error("Not implemented");
-            }
-          }
-        }
-      };
-      
-      console.log('Program created successfully');
-      
-      const isWalletConnected = !!(provider && 
-                                  provider.publicKey && 
-                                  provider.wallet);
-      
-      if (!isWalletConnected) {
-        // We'll allow the program to be initialized in read-only mode,
-        // but we'll set an error state indicating wallet connection is required for transactions
-        set({
-          state: {
-            ...get().state,
-            lastError: new Error("Wallet connection is required for transactions. Program initialized in read-only mode.")
-          },
-          program: program as unknown as Program<SendaDapp>
-        });
-      } else {
-        console.log('Program initialized with full transaction capabilities');
-        
-        // Clear any previous errors if wallet is properly connected
-        set({
-          state: {
-            ...get().state,
-            lastError: null,
-          },
-          program: program as unknown as Program<SendaDapp>
-        });
-      }
+      const program = new Program<SendaDapp>(
+        SENDA_IDL as unknown as Idl,
+        provider as AnchorProvider
+      );
+
+      const isWalletConnected = Boolean(
+        (provider as AnchorProvider).wallet &&
+        (provider as AnchorProvider).publicKey
+      );
+
+      set({
+        state: {
+          ...get().state,
+          wallet: wallet || null,
+          connection,
+          lastError: isWalletConnected
+            ? null
+            : new Error("Wallet connection is required for transactions. Program initialized in read-only mode."),
+        },
+        program,
+      });
+
+      console.log(
+        `Program initialized ${isWalletConnected ? 'with' : 'without'} wallet connection`
+      );
     } catch (error) {
       console.error('Error creating program:', error);
       set({ 
@@ -1002,5 +854,15 @@ export const useSendaProgram = create<SendaStore>((set, get) => ({
         lastError: null,
       }
     });
+  },
+
+  /**
+   * Force a re-initialisation of the store with a (potentially) different wallet.
+   * This first resets the state, then delegates to `initState`.
+   */
+  reinitState: async (externalWallet?: AnchorWallet) => {
+    const { resetState, initState } = get();
+    resetState();
+    await initState(externalWallet);
   }
 }));
