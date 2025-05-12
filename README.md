@@ -1,9 +1,5 @@
 # Senda DApp
 
-## Privy On-Ramp Integration
-
-This project uses Privy for on-ramping funds to Solana wallets with automatic backend conversion to stablecoins.
-
 ### Environment Variables
 
 Create a `.env` file with the following variables:
