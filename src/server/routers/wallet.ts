@@ -7,7 +7,8 @@ import {
     signAndSendTransaction,
     TransactionRequest
 } from "@/lib/utils/solana-transaction";
-import { TransactionInstruction, PublicKey } from "@solana/web3.js";
+import { TransactionInstruction, PublicKey, Keypair } from "@solana/web3.js";
+import { encryptPrivateKey } from "@/lib/utils/crypto";
 
 const parseInstruction = (rawInstruction: any): TransactionInstruction => {
     return new TransactionInstruction({
@@ -22,6 +23,35 @@ const parseInstruction = (rawInstruction: any): TransactionInstruction => {
 };
 
 export const walletRouter = router({
+
+    createWallet: protectedProcedure
+        .mutation(async () => {
+            try {
+                // Generate new wallet
+                const keypair = Keypair.generate();
+                const secretBuffer = Buffer.from(keypair.secretKey);
+                
+                // Encrypt private key
+                const { iv, authTag, data: encryptedPrivateKey } = encryptPrivateKey(secretBuffer);
+                
+                return {
+                    success: true,
+                    data: {
+                        publicKey: keypair.publicKey.toString(),
+                        encryptedPrivateKey,
+                        iv,
+                        authTag
+                    }
+                };
+                
+            } catch (error) {
+                console.error('Error creating wallet:', error);
+                throw new TRPCError({
+                    code: 'INTERNAL_SERVER_ERROR',
+                    message: 'Failed to create wallet'
+                });
+            }
+        }),
 
     generateNonce: protectedProcedure
         .input(z.object({ publicKey: z.string() }))
@@ -430,7 +460,8 @@ export const walletRouter = router({
             });
 
             return wallets;
-        })
+        }),
+        
 });
 
 export default walletRouter;

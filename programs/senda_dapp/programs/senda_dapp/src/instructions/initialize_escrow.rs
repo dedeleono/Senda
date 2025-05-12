@@ -31,6 +31,7 @@ pub struct InitializeEscrow<'info> {
 
     #[account(
         mut,
+        init_if_needed,
         associated_token::mint = usdc_mint,
         associated_token::authority = sender,
         associated_token::token_program = token_program

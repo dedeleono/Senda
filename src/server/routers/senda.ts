@@ -3,7 +3,8 @@ import { router, publicProcedure, protectedProcedure } from "../trpc";
 import {
     PublicKey,
     SystemProgram,
-    SYSVAR_RENT_PUBKEY
+    SYSVAR_RENT_PUBKEY,
+    Keypair
 } from "@solana/web3.js";
 import {
     AnchorProvider,
@@ -12,16 +13,27 @@ import {
 
 import {
     findVaultPDA,
-    findDepositRecordPDA
+    findDepositRecordPDA,
+    createAta,
+    findEscrowPDA
 } from "@/lib/senda/helpers";
 import { USDC_MINT, USDT_MINT } from "@/lib/constants";
 import {
     ASSOCIATED_TOKEN_PROGRAM_ID,
     TOKEN_PROGRAM_ID,
-    getAssociatedTokenAddress
+    getAssociatedTokenAddressSync,
+    getOrCreateAssociatedTokenAccount
 } from "@solana/spl-token";
 import { TRPCError } from "@trpc/server";
-import { getProvider, loadSignerKeypair } from "@/utils/dapp-wallets";
+import { getProvider, loadSignerKeypair, loadUserSignerKeypair } from "@/utils/dapp-wallets";
+import { prisma } from "@/lib/db";
+import crypto from 'crypto';
+import { encryptPrivateKey } from "@/lib/utils/crypto";
+import { UserService } from "../services/user";
+import { EscrowService } from "../services/escrow";
+import { handleRouterError } from "../utils/error-handler";
+import { CreateDepositResponse } from "@/types/transaction";
+import { DepositAccounts } from "@/types/senda-program";
 
 
 export const sendaRouter = router({
@@ -54,7 +66,6 @@ export const sendaRouter = router({
                 });
             }
 
-            // @todo Parse account once the type is in the IDL.
             return { address: factoryPda.toBase58(), raw: acct.data.toString("base64") };
         }),
 
@@ -68,7 +79,7 @@ export const sendaRouter = router({
         )
         .mutation(async ({ ctx, input }) => {
             try {
-                const { program, feePayer } = getProvider();
+                const { program, feePayer, connection } = getProvider();
 
                 const senderPk = new PublicKey(input.sender);
                 const receiverPk = new PublicKey(input.receiver);
@@ -76,11 +87,24 @@ export const sendaRouter = router({
                 const usdcMint = new PublicKey(USDC_MINT);
                 const usdtMint = new PublicKey(USDT_MINT);
 
-                // Compute PDAs & ATAs
+                // sender ATAs
+                await createAta(usdcMint, senderPk);
+                await createAta(usdtMint, senderPk);
+
+                // receiver ATAs
+                await createAta(usdcMint, receiverPk);
+                await createAta(usdtMint, receiverPk);
+
                 const [escrowPda] = PublicKey.findProgramAddressSync(
                     [Buffer.from("escrow"), senderPk.toBuffer(), receiverPk.toBuffer()],
                     program.programId
                 );
+
+                // Check if escrow already exists
+                const escrowAccount = await connection.getAccountInfo(escrowPda);
+                if (escrowAccount !== null) {
+                    return { signature: "", escrow: escrowPda.toBase58() };
+                }
 
                 const tx = await program.methods
                     .initializeEscrow(new BN(input.seed))
@@ -93,8 +117,11 @@ export const sendaRouter = router({
                     } as any)
                     .transaction();
 
-                // Only sign with fee payer since they're paying for the account creation
-                const sig = await (program.provider as AnchorProvider).sendAndConfirm(tx, [feePayer]);
+                const { keypair: senderKp } = await loadUserSignerKeypair(
+                    ctx.session!.user.id
+                );
+
+                const sig = await (program.provider as AnchorProvider).sendAndConfirm(tx, [senderKp, feePayer]);
 
                 return { signature: sig, escrow: escrowPda.toBase58() };
             } catch (error) {
@@ -110,82 +137,164 @@ export const sendaRouter = router({
     createDeposit: protectedProcedure
         .input(
             z.object({
-                escrow: z.string(),
+                userId: z.string(),
                 depositor: z.string(),
-                counterparty: z.string(),
+                recipientEmail: z.string().email(),
                 stable: z.enum(["usdc", "usdt"]),
                 authorization: z.enum(["sender", "receiver", "both"]),
                 amount: z.number().positive()
             })
         )
-        .mutation(async ({ ctx, input }) => {
-            const { program, feePayer } = getProvider();
-
-            const depositorPk = new PublicKey(input.depositor);
-            const counterpartyPk = new PublicKey(input.counterparty);
-            const escrowPk = new PublicKey(input.escrow);
-
-            const { keypair: depositorKp } = await loadSignerKeypair(
-                ctx.session!.user.id,
-                depositorPk
-            );
+        .mutation(async ({ ctx, input }): Promise<CreateDepositResponse> => {
 
             const usdcMint = new PublicKey(USDC_MINT);
             const usdtMint = new PublicKey(USDT_MINT);
 
-            const [vaultUsdc] = findVaultPDA(escrowPk, usdcMint, "usdc", program.programId);
-            const [vaultUsdt] = findVaultPDA(escrowPk, usdtMint, "usdt", program.programId);
+            try {
+                // 1. Get or create recipient user
+                const userResult = await UserService.getOrCreateUser(input.recipientEmail);
+                if (!userResult.success || !userResult.data) {
+                    throw new Error(userResult.error?.message || 'Failed to get or create user');
+                }
+                const receiver = userResult.data;
 
-            const depositorUsdcAta = await getAssociatedTokenAddress(usdcMint, depositorPk);
-            const depositorUsdtAta = await getAssociatedTokenAddress(usdtMint, depositorPk);
-            const counterpartyUsdcAta = await getAssociatedTokenAddress(usdcMint, counterpartyPk);
-            const counterpartyUsdtAta = await getAssociatedTokenAddress(usdtMint, counterpartyPk);
 
-            const stableEnum = input.stable === "usdc" ? { usdc: {} } : { usdt: {} };
-            const authEnum =
-                input.authorization === "sender"
-                    ? { sender: {} }
-                    : input.authorization === "receiver"
-                    ? { receiver: {} }
-                    : { both: {} };
+                // 2. Initialize escrow
+                const escrowResult = await EscrowService.initializeEscrow(
+                    input.userId,
+                    input.depositor,
+                    receiver.publicKey,
+                    0
+                );
+                if (!escrowResult.success || !escrowResult.data) {
+                    throw new Error(escrowResult.error?.message || 'Failed to initialize escrow');
+                }
+                const escrowData = escrowResult.data;
 
-            const lamports = Math.round(input.amount * 1_000_000);
+                const { program, feePayer } = getProvider();
+                const depositorPk = new PublicKey(input.depositor);
+                const counterpartyPk = new PublicKey(receiver.publicKey);
 
-            // For now, we assume the next deposit index is the current depositCount (0 if first deposit).
-            // In production, retrieve the actual value from on-chain escrow account.
-            const nextDepositIdx = 0;
-            const [depositRecord] = findDepositRecordPDA(
-                escrowPk,
-                nextDepositIdx,
-                program.programId
-            );
+                const [escrowPda] = findEscrowPDA(
+                    depositorPk,
+                    counterpartyPk,
+                    program.programId
+                );
 
-            const tx = await program.methods
-                .deposit(stableEnum as any, authEnum as any, new BN(lamports))
-                .accounts({
-                    escrow: escrowPk,
-                    depositor: depositorPk,
-                    counterparty: counterpartyPk,
-                    depositorUsdcAta,
-                    depositorUsdtAta,
-                    counterpartyUsdcAta,
-                    counterpartyUsdtAta,
-                    usdcMint,
-                    usdtMint,
-                    vaultUsdc,
-                    vaultUsdt,
-                    feePayer: feePayer.publicKey,
-                    depositRecord,
-                    associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-                    tokenProgram: TOKEN_PROGRAM_ID,
-                    systemProgram: SystemProgram.programId,
-                    rent: SYSVAR_RENT_PUBKEY
-                } as any)
-                .transaction();
+                // Fetch escrow account data to get the next deposit index
+                const escrowAccount = await program.account.escrow.fetch(escrowPda);
+                const nextDepositIdx = escrowAccount.depositCount.toNumber();
 
-            const sig = await (program.provider as AnchorProvider).sendAndConfirm(tx, [feePayer, depositorKp]);
+                const [depositRecordPda] = findDepositRecordPDA(
+                    escrowPda,
+                    nextDepositIdx,
+                    program.programId
+                );
 
-            return { signature: sig };
+                // 5. Create on-chain deposit
+                const stableEnum = input.stable === "usdc" ? { usdc: {} } : { usdt: {} };
+                const authEnum =
+                    input.authorization === "sender"
+                        ? { sender: {} }
+                        : input.authorization === "receiver"
+                            ? { receiver: {} }
+                            : { both: {} };
+
+                const lamports = Math.round(input.amount * 1_000_000);
+
+                const tx = await program.methods
+                    .deposit(stableEnum as any, authEnum as any, new BN(lamports))
+                    .accounts({
+                        escrow: escrowPda,
+                        depositor: depositorPk,
+                        counterparty: counterpartyPk,
+                        usdcMint: usdcMint,
+                        usdtMint: usdtMint,
+                        depositRecord: depositRecordPda,
+                        feePayer: feePayer.publicKey,
+                    } as DepositAccounts)
+                    .transaction();
+                    
+                const { keypair: depositor } = await loadUserSignerKeypair(
+                    ctx.session!.user.id
+                );
+
+                const signature = await program.provider.sendAndConfirm!(tx, [feePayer, depositor]);
+
+                // 6. Create DB records
+                const { transaction, deposit } = await prisma.$transaction(async (tx) => {
+                    const txn = await tx.transaction.create({
+                        data: {
+                            userId: ctx.session.user.id,
+                            walletPublicKey: input.depositor,
+                            destinationAddress: receiver.publicKey,
+                            amount: input.amount,
+                            status: 'PENDING',
+                            type: 'TRANSFER',
+                        },
+                        select: {
+                            id: true,
+                            status: true
+                        }
+                    });
+
+                    const dep = await tx.depositRecord.create({
+                        data: {
+                            depositIndex: nextDepositIdx,
+                            amount: input.amount,
+                            policy: input.authorization === 'both' ? 'DUAL' : 'SINGLE',
+                            stable: input.stable,
+                            signatures: [signature],
+                            state: 'PENDING',
+                            userId: ctx.session.user.id,
+                            escrowId: escrowData.escrowAddress,
+                            transactionId: txn.id
+                        },
+                    });
+
+                    return { transaction: txn, deposit: dep };
+                });
+
+                // 7. Send notification email
+                await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/email/send`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        template: receiver.role === 'GUEST' ? "GuestDepositNotification" : "DepositNotification",
+                        data: {
+                            email: input.recipientEmail,
+                            amount: input.amount.toFixed(2),
+                            token: input.stable.toUpperCase(),
+                            senderEmail: ctx.session.user.email
+                        }
+                    }),
+                });
+
+                return {
+                    success: true,
+                    data: {
+                        signature,
+                        escrowAddress: escrowData.escrowAddress,
+                        depositId: deposit.id,
+                        user: {
+                            id: receiver.id,
+                            publicKey: receiver.publicKey,
+                            role: receiver.role
+                        },
+                        transaction: {
+                            id: transaction.id,
+                            status: transaction.status
+                        }
+                    }
+                };
+
+            } catch (error) {
+                console.error('Error in createDeposit:', error);
+                return {
+                    success: false,
+                    error: handleRouterError(error)
+                };
+            }
         }),
 
     cancelDeposit: protectedProcedure
@@ -215,8 +324,8 @@ export const sendaRouter = router({
             const [vaultUsdc] = findVaultPDA(escrowPk, usdcMint, "usdc", program.programId);
             const [vaultUsdt] = findVaultPDA(escrowPk, usdtMint, "usdt", program.programId);
 
-            const depositorUsdcAta = await getAssociatedTokenAddress(usdcMint, depositorPk);
-            const depositorUsdtAta = await getAssociatedTokenAddress(usdtMint, depositorPk);
+            const depositorUsdcAta = await getAssociatedTokenAddressSync(usdcMint, depositorPk);
+            const depositorUsdtAta = await getAssociatedTokenAddressSync(usdtMint, depositorPk);
 
             const [depositRecord] = findDepositRecordPDA(
                 escrowPk,
@@ -280,13 +389,13 @@ export const sendaRouter = router({
             const [vaultUsdc] = findVaultPDA(escrowPk, usdcMint, "usdc", program.programId);
             const [vaultUsdt] = findVaultPDA(escrowPk, usdtMint, "usdt", program.programId);
 
-            const depositorUsdcAta = await getAssociatedTokenAddress(usdcMint, depositorPk);
-            const depositorUsdtAta = await getAssociatedTokenAddress(usdtMint, depositorPk);
-            const counterpartyUsdcAta = await getAssociatedTokenAddress(
+            const depositorUsdcAta = await getAssociatedTokenAddressSync(usdcMint, depositorPk);
+            const depositorUsdtAta = await getAssociatedTokenAddressSync(usdtMint, depositorPk);
+            const counterpartyUsdcAta = await getAssociatedTokenAddressSync(
                 usdcMint,
                 counterpartyPk
             );
-            const counterpartyUsdtAta = await getAssociatedTokenAddress(
+            const counterpartyUsdtAta = await getAssociatedTokenAddressSync(
                 usdtMint,
                 counterpartyPk
             );

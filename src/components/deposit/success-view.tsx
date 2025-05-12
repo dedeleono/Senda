@@ -6,18 +6,22 @@ import Image from 'next/image';
 import usdcIcon from '@/public/usdc.svg';
 import usdtIcon from '@/public/usdt-round.svg';
 import { useState } from 'react';
-import { useDepositStore } from '@/stores/use-deposit-store';
+import { useDepositForm } from '@/stores/use-deposit-form';
 
 interface SuccessViewProps {
   onClose: () => void;
+  transactionData?: {
+    signature: string;
+    depositId: string;
+  };
 }
 
-const SuccessView = ({ onClose }: SuccessViewProps) => {
-  const { formData, transactionResult } = useDepositStore();
+const SuccessView = ({ onClose, transactionData }: SuccessViewProps) => {
+  const { formData } = useDepositForm();
   const [copied, setCopied] = useState(false);
   
   const { recipient, amount } = formData;
-  const transactionId = transactionResult?.transactionId || '';
+  const transactionId = transactionData?.signature || '';
   
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -39,8 +43,8 @@ const SuccessView = ({ onClose }: SuccessViewProps) => {
   };
   
   const viewExplorer = () => {
-    // Open a transaction explorer page - replace with your actual explorer URL
-    window.open(`/dashboard/transactions/${transactionId}`, '_blank');
+    // Open Solana explorer for the transaction
+    window.open(`https://explorer.solana.com/tx/${transactionId}`, '_blank');
   };
   
   return (
@@ -101,7 +105,7 @@ const SuccessView = ({ onClose }: SuccessViewProps) => {
           variant="outline" 
           className="w-full"
         >
-          View Transaction <ExternalLink className="ml-2 h-4 w-4" />
+          View on Explorer <ExternalLink className="ml-2 h-4 w-4" />
         </Button>
         
         <Button 

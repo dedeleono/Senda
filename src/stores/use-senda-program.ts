@@ -1,14 +1,35 @@
 import { create } from 'zustand';
 import { PublicKey } from '@solana/web3.js';
 import { TransactionResult } from '@/lib/utils/solana-transaction';
-import { FactoryStats, EscrowStats, InitEscrowParams, DepositParams, CancelParams, ReleaseParams, EscrowState } from '@/types/senda-program';
+import { FactoryStats, EscrowStats, InitEscrowParams, CancelParams, ReleaseParams } from '@/types/senda-program';
 import { persist } from 'zustand/middleware';
+import { prisma } from '@/lib/db';
+import { CreateDepositResponse } from '@/types/transaction';
 
 interface SendaProgramState {
   isProcessing: boolean;
   lastError: Error | null;
   lastInitialization: number | null;
   transactionCount: number;
+}
+
+interface EscrowData {
+  id: string;
+  senderPublicKey: string;
+  receiverPublicKey: string;
+  depositedUsdc: number;
+  depositedUsdt: number;
+  depositCount: number;
+  state: string;
+}
+
+interface DepositInput {
+  userId: string;
+  depositor: string;
+  recipientEmail: string;
+  stable: 'usdc' | 'usdt';
+  authorization: 'sender' | 'receiver' | 'both';
+  amount: number;
 }
 
 export interface SendaStore {
@@ -20,15 +41,20 @@ export interface SendaStore {
   setError: (error: Error | null) => void;
   resetState: () => void;
   
-  // Transaction methods
+  // On-chain operations
   initEscrow: (params: InitEscrowParams) => Promise<TransactionResult>;
-  createDeposit: (params: DepositParams) => Promise<TransactionResult>;
+  createDeposit: (params: DepositInput) => Promise<CreateDepositResponse>;
   cancelDeposit: (params: CancelParams) => Promise<TransactionResult>;
   requestWithdrawal: (params: ReleaseParams) => Promise<TransactionResult>;
+  
+  // Database sync operations
+  syncEscrowToDb: (escrowAddress: string, senderPk: string, receiverPk: string) => Promise<EscrowData>;
+  syncDepositToDb: (depositParams: DepositInput & { signature: string; escrowId: string; userId: string }) => Promise<string>;
   
   // Read methods
   getFactoryStats: (owner?: string) => Promise<FactoryStats | null>;
   getEscrowStats: (escrowPublicKey: string) => Promise<EscrowStats | null>;
+  getEscrowFromDb: (senderPk: string, receiverPk: string) => Promise<EscrowData | null>;
 }
 
 export const useSendaProgram = create<SendaStore>()(
@@ -39,69 +65,31 @@ export const useSendaProgram = create<SendaStore>()(
         isProcessing: false,
         lastError: null,
         lastInitialization: null,
-        transactionCount: 0,
+        transactionCount: 0
       },
-
-      setProcessing: (isProcessing: boolean) => 
-        set({ state: { ...get().state, isProcessing } }),
       
-      setError: (error: Error | null) => 
-        set({ state: { ...get().state, lastError: error } }),
+      setProcessing: (isProcessing: boolean) => set({
+        state: { ...get().state, isProcessing }
+      }),
+      
+      setError: (error: Error | null) => set({
+        state: { ...get().state, lastError: error }
+      }),
       
       resetState: () => set({
-        stats: null,
         state: {
           isProcessing: false,
           lastError: null,
           lastInitialization: null,
-          transactionCount: 0,
+          transactionCount: 0
         }
       }),
-
-      getFactoryStats: async (owner?: string) => {
-        try {
-          set({ state: { ...get().state, isProcessing: true } });
-          
-          const response = await fetch('/api/trpc/sendaRouter.getFactoryStats', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ owner })
-          });
-          
-          const result = await response.json();
-          set({ stats: result.data, state: { ...get().state, isProcessing: false } });
-          return result.data;
-        } catch (error) {
-          const typedError = error instanceof Error ? error : new Error(String(error));
-          set({ state: { ...get().state, isProcessing: false, lastError: typedError } });
-          return null;
-        }
-      },
-
-      getEscrowStats: async (escrowPublicKey: string) => {
-        try {
-          set({ state: { ...get().state, isProcessing: true } });
-          
-          const response = await fetch('/api/trpc/sendaRouter.getEscrowStats', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ escrowPublicKey })
-          });
-          
-          const result = await response.json();
-          return result.data;
-        } catch (error) {
-          const typedError = error instanceof Error ? error : new Error(String(error));
-          set({ state: { ...get().state, isProcessing: false, lastError: typedError } });
-          return null;
-        }
-      },
 
       initEscrow: async ({ senderPublicKey, receiverPublicKey, seed = 0 }: InitEscrowParams): Promise<TransactionResult> => {
         try {
           set({ state: { ...get().state, isProcessing: true } });
           
-          const response = await fetch('/api/trpc/sendaRouter.initEscrow', {
+          const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL!}/api/trpc/sendaRouter.initEscrow`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -141,12 +129,89 @@ export const useSendaProgram = create<SendaStore>()(
           return { success: false, error: typedError };
         }
       },
+      
+      syncEscrowToDb: async (escrowAddress: string, senderPk: string, receiverPk: string) => {
+        try {
+          const escrow = await prisma.escrow.upsert({
+            where: {
+              id: escrowAddress,
+            },
+            create: {
+              id: escrowAddress,
+              senderPublicKey: senderPk,
+              receiverPublicKey: receiverPk,
+              depositedUsdc: 0,
+              depositedUsdt: 0,
+              depositCount: 0,
+              state: 'Active',
+            },
+            update: {}, // If it exists, don't update anything
+          });
+          
+          return escrow;
+        } catch (error) {
+          console.error('Error syncing escrow to DB:', error);
+          throw error;
+        }
+      },
+      
+      syncDepositToDb: async (params) => {
+        try {
+          // Create transaction record first
+          const transaction = await prisma.transaction.create({
+            data: {
+              userId: params.userId,
+              walletPublicKey: params.depositor,
+              destinationAddress: params.recipientEmail,
+              amount: params.amount,
+              status: 'PENDING',
+              type: 'TRANSFER',
+            },
+          });
 
-      createDeposit: async (params: DepositParams): Promise<TransactionResult> => {
+          // Create deposit record
+          const deposit = await prisma.depositRecord.create({
+            data: {
+              depositIndex: Math.floor(Math.random() * 1000000), // TODO: Get actual index from chain
+              amount: params.amount,
+              policy: params.authorization === 'both' ? 'DUAL' : 'SINGLE',
+              stable: params.stable,
+              signatures: [params.signature],
+              state: 'PENDING',
+              userId: params.userId,
+              transactionId: transaction.id,
+              escrowId: params.escrowId,
+            },
+          });
+
+          return deposit.id;
+        } catch (error) {
+          console.error('Error syncing deposit to DB:', error);
+          throw error;
+        }
+      },
+
+      getEscrowFromDb: async (senderPk: string, receiverPk: string) => {
+        try {
+          return await prisma.escrow.findUnique({
+            where: {
+              senderPublicKey_receiverPublicKey: {
+                senderPublicKey: senderPk,
+                receiverPublicKey: receiverPk,
+              },
+            },
+          });
+        } catch (error) {
+          console.error('Error getting escrow from DB:', error);
+          return null;
+        }
+      },
+
+      createDeposit: async (params: DepositInput): Promise<CreateDepositResponse> => {
         try {
           set({ state: { ...get().state, isProcessing: true } });
           
-          const response = await fetch('/api/trpc/sendaRouter.createDeposit', {
+          const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL!}/api/trpc/sendaRouter.createDeposit`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(params)
@@ -161,11 +226,11 @@ export const useSendaProgram = create<SendaStore>()(
             }
           });
           
-          return { success: true, signature: result.data.signature };
+          return result;
         } catch (error) {
           const typedError = error instanceof Error ? error : new Error(String(error));
           set({ state: { ...get().state, isProcessing: false, lastError: typedError } });
-          return { success: false, error: typedError };
+          return { success: false, error: { code: 'INTERNAL_SERVER_ERROR', message: typedError.message } };
         }
       },
 
@@ -173,7 +238,7 @@ export const useSendaProgram = create<SendaStore>()(
         try {
           set({ state: { ...get().state, isProcessing: true } });
           
-          const response = await fetch('/api/trpc/sendaRouter.cancelDeposit', {
+          const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/trpc/sendaRouter.cancelDeposit`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(params)
@@ -200,7 +265,7 @@ export const useSendaProgram = create<SendaStore>()(
         try {
           set({ state: { ...get().state, isProcessing: true } });
           
-          const response = await fetch('/api/trpc/sendaRouter.requestWithdrawal', {
+          const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/trpc/sendaRouter.requestWithdrawal`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(params)
@@ -222,13 +287,36 @@ export const useSendaProgram = create<SendaStore>()(
           return { success: false, error: typedError };
         }
       },
+
+      getFactoryStats: async (owner?: string): Promise<FactoryStats | null> => {
+        try {
+          const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/trpc/sendaRouter.getFactoryStats${owner ? `?owner=${owner}` : ''}`);
+          const result = await response.json();
+          return result.data;
+        } catch (error) {
+          console.error('Error getting factory stats:', error);
+          return null;
+        }
+      },
+
+      getEscrowStats: async (escrowPublicKey: string): Promise<EscrowStats | null> => {
+        try {
+          const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/trpc/sendaRouter.getEscrowStats?escrow=${escrowPublicKey}`);
+          const result = await response.json();
+          return result.data;
+        } catch (error) {
+          console.error('Error getting escrow stats:', error);
+          return null;
+        }
+      }
     }),
     {
-      name: 'senda-program-storage',
+      name: 'senda-program-store',
       partialize: (state) => ({
+        stats: state.stats,
         state: {
-          transactionCount: state.state.transactionCount,
           lastInitialization: state.state.lastInitialization,
+          transactionCount: state.state.transactionCount
         }
       })
     }

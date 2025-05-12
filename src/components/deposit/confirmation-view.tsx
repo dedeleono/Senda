@@ -1,18 +1,33 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
+import { ArrowLeft, Loader2 } from 'lucide-react';
 import Image from 'next/image';
 import usdcIcon from '@/public/usdc.svg';
 import usdtIcon from '@/public/usdt-round.svg';
-import { useDepositStore } from '@/stores/use-deposit-store';
-import { trpc } from '@/app/_trpc/client';
+import { useDepositForm } from '@/stores/use-deposit-form';
+import { useWalletStore } from '@/stores/use-wallet-store';
+import { useSendaProgram } from '@/stores/use-senda-program';
+import { toast } from 'sonner';
+import type { CreateDepositResponse } from '@/types/transaction';
+import { useAuth } from '@/hooks/use-auth';
 
-const ConfirmationView = () => {
-  const { formData, isSubmitting, submitDeposit, prevStep } = useDepositStore();
-  
-  // Get the mutation
-  const createDepositMutation = trpc.transactionRouter.startDeposit.useMutation();
+interface ConfirmationViewProps {
+  onComplete: (signature: string, depositId: string) => void;
+}
+
+const ConfirmationView = ({ onComplete }: ConfirmationViewProps) => {
+  const { 
+    formData, 
+    isSubmitting, 
+    prevStep, 
+    setSubmitting, 
+    setError,
+    setStep 
+  } = useDepositForm();
+  const { publicKey } = useWalletStore();
+  const sendaProgram = useSendaProgram();
+  const { session } = useAuth()
   
   const { recipient, amount, authorization } = formData;
   
@@ -37,11 +52,40 @@ const ConfirmationView = () => {
   };
   
   const handleSubmit = async () => {
+    if (!publicKey) {
+      toast.error('Please connect your wallet first');
+      return;
+    }
+
     try {
-      // Pass the mutation function to the store
-      await submitDeposit(createDepositMutation.mutateAsync);
+      setSubmitting(true);
+      setError(undefined);
+      
+      const result = await sendaProgram.createDeposit({
+        userId: session?.user?.id as string,
+        depositor: publicKey.toString(),
+        recipientEmail: recipient.email,
+        stable: amount.token.toLowerCase() as 'usdc' | 'usdt',
+        authorization,
+        amount: amount.value
+      });
+      
+      if (!result.success || !result.data) {
+        throw new Error(result.error?.message || 'Failed to create deposit');
+      }
+
+      // Call onComplete with the transaction data
+      onComplete(result.data.signature, result.data.depositId);
+      
+      setStep(4); // Move to success step
+      toast.success('Deposit created successfully');
+      
     } catch (error) {
-      console.error('Error submitting deposit:', error);
+      const message = error instanceof Error ? error.message : 'Failed to create deposit';
+      setError(message);
+      toast.error('Failed to create deposit: ' + message);
+    } finally {
+      setSubmitting(false);
     }
   };
   

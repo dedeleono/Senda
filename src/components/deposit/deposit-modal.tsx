@@ -1,13 +1,13 @@
 'use client';
 
-import { useState, useImperativeHandle, forwardRef, useEffect } from 'react';
+import { useState, useImperativeHandle, forwardRef } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Separator } from '@/components/ui/separator';
 import RecipientForm from './recipient-form';
 import AmountForm from './amount-form';
 import ConfirmationView from './confirmation-view';
 import SuccessView from './success-view';
-import { useDepositStore } from '@/stores/use-deposit-store';
+import { useDepositForm } from '@/stores/use-deposit-form';
 
 export type DepositModalRef = {
   open: () => void;
@@ -22,23 +22,16 @@ type DepositModalProps = {
 const DepositModal = forwardRef<DepositModalRef, DepositModalProps>(
   ({ onClose, onComplete }, ref) => {
     const [isOpen, setIsOpen] = useState(false);
+    const [transactionData, setTransactionData] = useState<{
+      signature: string;
+      depositId: string;
+    } | undefined>();
     
     const { 
       step, 
       formData,
-      transactionResult,
       resetForm
-    } = useDepositStore();
-
-    // Track transaction result for callback
-    useEffect(() => {
-      if (transactionResult?.success && 
-          transactionResult.transactionId && 
-          transactionResult.depositId && 
-          onComplete) {
-        onComplete(transactionResult.transactionId, transactionResult.depositId);
-      }
-    }, [transactionResult, onComplete]);
+    } = useDepositForm();
 
     const stepTitles = [
       'Recipient',
@@ -49,6 +42,7 @@ const DepositModal = forwardRef<DepositModalRef, DepositModalProps>(
 
     const handleOpen = () => {
       resetForm();
+      setTransactionData(undefined);
       setIsOpen(true);
     };
     
@@ -58,7 +52,15 @@ const DepositModal = forwardRef<DepositModalRef, DepositModalProps>(
       
       setTimeout(() => {
         resetForm();
+        setTransactionData(undefined);
       }, 300);
+    };
+
+    const handleTransactionComplete = (signature: string, depositId: string) => {
+      setTransactionData({ signature, depositId });
+      if (onComplete) {
+        onComplete(signature, depositId);
+      }
     };
 
     useImperativeHandle(ref, () => ({
@@ -103,8 +105,8 @@ const DepositModal = forwardRef<DepositModalRef, DepositModalProps>(
           <div className="px-6 pb-6">
             {step === 1 && <RecipientForm />}
             {step === 2 && <AmountForm />}
-            {step === 3 && <ConfirmationView />}
-            {step === 4 && <SuccessView onClose={handleClose} />}
+            {step === 3 && <ConfirmationView onComplete={handleTransactionComplete} />}
+            {step === 4 && <SuccessView onClose={handleClose} transactionData={transactionData} />}
           </div>
         </DialogContent>
       </Dialog>

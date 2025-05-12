@@ -97,7 +97,7 @@ async function decryptViaEndpoint(encryptedData: {
   authTag: string;
   data: string;
 }): Promise<Buffer> {
-  const response = await fetch('/api/decrypt', {
+  const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL!}/api/decrypt`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -160,5 +160,36 @@ export async function loadSignerKeypair(
     });
   }
 
+  return { keypair, publicKey: keypair.publicKey };
+}
+
+export async function loadUserSignerKeypair(
+  userId: string,
+): Promise<LoadedKeypair> {
+  const walletRow = await prisma.user.findFirst({
+    where: {
+      id: userId,
+    },
+    select: {
+      encryptedPrivateKey: true,
+      iv: true,
+      authTag: true
+    }
+  });
+
+  if (!walletRow?.encryptedPrivateKey || !walletRow.iv || !walletRow.authTag) {
+    throw new TRPCError({
+      code: "UNAUTHORIZED",
+      message: "No wallet found for this user"
+    });
+  }
+
+  const secretBuffer = await decryptViaEndpoint({
+    iv: walletRow.iv,
+    authTag: walletRow.authTag,
+    data: walletRow.encryptedPrivateKey
+  });
+
+  const keypair = Keypair.fromSecretKey(secretBuffer);
   return { keypair, publicKey: keypair.publicKey };
 }

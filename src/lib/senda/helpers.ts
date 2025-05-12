@@ -1,5 +1,11 @@
-import { clusterApiUrl, Connection, PublicKey } from "@solana/web3.js";
+import { clusterApiUrl, Connection, PublicKey, Transaction } from "@solana/web3.js";
 import { trpc } from "@/app/_trpc/client";
+import { getProvider } from "@/utils/dapp-wallets";
+import { loadFeePayerKeypair } from "@/utils/dapp-wallets";
+import { 
+    createAssociatedTokenAccountInstruction,
+    getAssociatedTokenAddressSync,
+} from "@solana/spl-token";
 
 export const findFactoryPDA = (owner: PublicKey, programId: PublicKey): [PublicKey, number] => {
     return PublicKey.findProgramAddressSync(
@@ -120,13 +126,59 @@ export const createInstructionData = (
 
 export const createAta = async (mint: PublicKey, owner: PublicKey) => {
     try {
-        const result = await trpc.transactionRouter.createAssociatedTokenAccount.useMutation().mutateAsync({
-            mint: mint.toBase58(),
-            owner: owner.toBase58()
-        });
+        const { connection } = getProvider();
+        const { keypair: feePayer } = loadFeePayerKeypair();
+        
+        // Get the ATA address
+        const ataAddress = getAssociatedTokenAddressSync(
+            mint,
+            owner
+        );
 
-        return new PublicKey(result.address);
-    } catch (error) {
+        try {
+            // Check if the account already exists
+            const account = await connection.getAccountInfo(ataAddress);
+            if (account !== null) {
+                return [ataAddress, false];
+            }
+        } catch (error) {
+            console.log("Error checking account, proceeding with creation:", error);
+        }
+
+        // Create the instruction
+        const ix = createAssociatedTokenAccountInstruction(
+            feePayer.publicKey,
+            ataAddress,
+            owner,
+            mint
+        );
+
+        // Create and send transaction
+        const tx = new Transaction().add(ix);
+        const latestBlockhash = await connection.getLatestBlockhash();
+        tx.recentBlockhash = latestBlockhash.blockhash;
+        tx.feePayer = feePayer.publicKey;
+
+        const signature = await connection.sendTransaction(tx, [feePayer], {
+            skipPreflight: false,
+            preflightCommitment: "confirmed",
+            maxRetries: 3
+        });
+        
+        // Wait for confirmation
+        await connection.confirmTransaction({
+            signature,
+            blockhash: latestBlockhash.blockhash,
+            lastValidBlockHeight: latestBlockhash.lastValidBlockHeight
+        }, "confirmed");
+
+        return [ataAddress, true];
+    } catch (error: any) {
+        // If the error indicates the account already exists, return the address
+        if (error.message?.includes("already in use")) {
+            const ataAddress = getAssociatedTokenAddressSync(mint, owner);
+            return [ataAddress, false];
+        }
         console.error("Failed to create ATA:", error);
         throw error;
     }

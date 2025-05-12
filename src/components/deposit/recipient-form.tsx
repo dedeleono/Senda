@@ -5,10 +5,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Mail, Check, Loader2, AlertCircle, Info, ArrowRight } from 'lucide-react';
-import { useDepositStore } from '@/stores/use-deposit-store';
+import { useDepositForm } from '@/stores/use-deposit-form';
 import { trpc } from '@/app/_trpc/client';
 import { useDebounce } from '@/hooks/use-debounce';
-import { UserRole } from '@prisma/client';
+import type { UserRole } from '@prisma/client';
 
 const RecipientForm = () => {
   const [email, setEmail] = useState('');
@@ -35,7 +35,7 @@ const RecipientForm = () => {
     formData, 
     updateFormData, 
     nextStep
-  } = useDepositStore();
+  } = useDepositForm();
   
   // Initialize with any existing data
   useEffect(() => {
@@ -45,7 +45,7 @@ const RecipientForm = () => {
     }
   }, [formData.recipient.email]);
   
-  const validateEmail = (email: string) => {
+  const validateEmail = (email: string): boolean => {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
   };
 

@@ -10,13 +10,14 @@ import Image from 'next/image';
 import usdcIcon from '@/public/usdc.svg';
 import usdtIcon from '@/public/usdt-round.svg';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { useDepositStore } from '@/stores/use-deposit-store';
+import { useDepositForm } from '@/stores/use-deposit-form';
+import type { TokenType, AuthorizationType } from '@/types/transaction';
 
 const AmountForm = () => {
-  const { formData, updateFormData, nextStep, prevStep } = useDepositStore();
+  const { formData, updateFormData, nextStep, prevStep } = useDepositForm();
   
   const [amount, setAmount] = useState(formData.amount.value.toString());
-  const [token, setToken] = useState<'USDC' | 'USDT'>(formData.amount.token);
+  const [token, setToken] = useState<TokenType>(formData.amount.token);
   const [errorMessage, setErrorMessage] = useState('');
   
   useEffect(() => {
@@ -35,7 +36,7 @@ const AmountForm = () => {
     }
   };
   
-  const handleTokenChange = (value: 'USDC' | 'USDT') => {
+  const handleTokenChange = (value: TokenType) => {
     setToken(value);
     updateFormData({
       amount: {
@@ -45,7 +46,7 @@ const AmountForm = () => {
     });
   };
   
-  const handleAuthorizationChange = (value: 'sender' | 'receiver' | 'both') => {
+  const handleAuthorizationChange = (value: AuthorizationType) => {
     updateFormData({
       authorization: value,
     });
@@ -115,7 +116,7 @@ const AmountForm = () => {
         <RadioGroup 
           className="flex space-x-2" 
           value={token} 
-          onValueChange={(value) => handleTokenChange(value as 'USDC' | 'USDT')}
+          onValueChange={(value) => handleTokenChange(value as TokenType)}
         >
           <div className={`flex-1 border rounded-md p-3 cursor-pointer ${token === 'USDC' ? 'border-primary bg-primary/5' : 'border-gray-200'}`}>
             <RadioGroupItem value="USDC" id="usdc" className="sr-only" />
@@ -140,7 +141,7 @@ const AmountForm = () => {
         <RadioGroup 
           className="space-y-2" 
           value={formData.authorization} 
-          onValueChange={(value) => handleAuthorizationChange(value as 'sender' | 'receiver' | 'both')}
+          onValueChange={(value) => handleAuthorizationChange(value as AuthorizationType)}
         >
           <div className={`border rounded-md p-3 cursor-pointer ${formData.authorization === 'sender' ? 'border-primary bg-primary/5' : 'border-gray-200'}`}>
             <RadioGroupItem value="sender" id="sender" className="sr-only" />
