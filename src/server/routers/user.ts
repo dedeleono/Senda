@@ -1,4 +1,3 @@
-
 import { router, protectedProcedure } from "../trpc";
 import { prisma } from "@/lib/db";
 import { z } from "zod";
@@ -11,6 +10,55 @@ const userRouter = router({
     }),
     getUserByEmail: protectedProcedure.input(z.object({ email: z.string() })).query(async ({ input }) => {
         return prisma.user.findUnique({ where: { email: input.email }, select: { id: true, role: true } });
+    }),
+    getUserPaths: protectedProcedure.input(z.object({
+        userId: z.string()
+    })).query(async ({ input }) => {
+        const user = await prisma.user.findUnique({
+            where: { id: input.userId },
+            select: { sendaWalletPublicKey: true }
+        });
+
+        if (!user) {
+            throw new Error("User not found");
+        }
+
+        const paths = await prisma.escrow.findMany({
+            where: {
+                OR: [
+                    { senderPublicKey: user.sendaWalletPublicKey },
+                    { receiverPublicKey: user.sendaWalletPublicKey }
+                ],
+                state: "Active" // Only get active escrows
+            },
+            select: {
+                id: true,
+                senderPublicKey: true,
+                receiverPublicKey: true,
+                depositedUsdc: true,
+                depositedUsdt: true,
+                depositCount: true,
+                state: true,
+                createdAt: true,
+                sender: {
+                    select: {
+                        email: true,
+                        name: true,
+                    }
+                },
+                receiver: {
+                    select: {
+                        email: true,
+                        name: true,
+                    }
+                }
+            },
+            orderBy: {
+                createdAt: 'desc'
+            }
+        });
+
+        return paths;
     }),
     createMinimalUser: protectedProcedure.input(z.object({ recipientEmail: z.string().email() })).mutation(async ({ input }) => {
         const { recipientEmail } = input;

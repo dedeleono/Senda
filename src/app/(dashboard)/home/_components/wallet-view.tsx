@@ -1,10 +1,10 @@
 'use client'
 
-import { useRef, useEffect, useState } from 'react'
+import { useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { ArrowUp, Plus, PlusIcon, Wallet } from 'lucide-react'
+import { ArrowUp, PlusIcon, Wallet } from 'lucide-react'
 import { useAuth } from '@/hooks/use-auth'
 import { trpc } from '@/app/_trpc/client'
 import path from '@/public/2.svg'
@@ -22,20 +22,29 @@ import { Badge } from '@/components/ui/badge'
 import { useWalletStore } from '@/stores/use-wallet-store'
 
 export default function SendaWallet() {
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, session } = useAuth()
   const walletQRDialogRef = useRef<WalletQRDialogRef>(null)
   const depositModalRef = useRef<DepositModalRef>(null)
 
   const { publicKey } = useWalletStore()
   const sendaWalletAddress = publicKey?.toString() || null
   
-  const { isLoading, error, balances } = useWalletBalances()
+  const { error, balances } = useWalletBalances()
   
   const [selectedTransaction, setSelectedTransaction] = useState<any>(null)
   const [isTransactionDetailsOpen, setIsTransactionDetailsOpen] = useState(false)
 
   const { data: transactions, isLoading: isLoadingTransactions } = trpc.transactionRouter.getUserTransactions.useQuery(
     { limit: 10 },
+    {
+      enabled: isAuthenticated,
+      retry: false,
+    }
+  )
+
+
+  const { data: paths, isLoading: isLoadingPaths } = trpc.userRouter.getUserPaths.useQuery(
+    { userId: session?.user.id as string },
     {
       enabled: isAuthenticated,
       retry: false,
@@ -87,8 +96,8 @@ export default function SendaWallet() {
   const totalBalance = balances.reduce((sum, token) => sum + token.uiBalance, 0)
 
   return (
-    <div className="flex flex-col h-full min-h-full mx-auto md:flex-row md:max-w-3xl">
-      <main className="flex-1 p-6 space-y-6">
+    <div className="flex flex-col h-full min-h-full mx-auto md:flex-row md:max-w-4xl">
+      <main className="flex-1 p-6 space-y-6 md:min-w-4xl">
         <Card className="bg-white p-8 rounded-2xl shadow-md">
           <div className="flex items-center justify-between">
             <div className="flex flex-col space-y-3">
@@ -266,14 +275,103 @@ export default function SendaWallet() {
             </TabsContent>
 
             <TabsContent value="paths" className="p-0 mt-0">
-              <div className="py-12 text-center">
-                <img src={path.src} className="mx-auto mb-6 h-12 rounded-lg" />
-                <h3 className="text-gray-900 text-lg font-medium">You have no trust paths yet!</h3>
-                <p className="text-gray-500">Start connecting with your people here.</p>
-                <Button className="bg-[#f6ead7] text-black font-semibold hover:font-bold hover:bg-[#f6ead7] cursor-pointer mt-6">
-                  Add New Persona <PlusIcon />
-                </Button>
-              </div>
+              {isLoadingPaths ? (
+                <div className="py-8 flex justify-center">
+                  <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#d7dfbe] border-t-transparent" />
+                </div>
+              ) : paths && paths.length > 0 ? (
+                <div className="p-6 space-y-6">
+                  {paths.map((path) => {
+                    const isReceiver = path.senderPublicKey === publicKey?.toString();
+                    const otherPartyEmail = isReceiver ? path.receiver.email : path.sender.email;
+                    const otherPartyName = isReceiver ? path.receiver.name : path.sender.name;
+                    
+                    return (
+                      <div key={path.id} className="relative bg-white rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow border border-gray-100">
+                        <div className="flex items-center justify-between gap-4">
+                          {/* Current User Side */}
+                          <div className="flex-1 text-right">
+                            <div className="inline-flex items-center justify-end gap-3">
+                              <div>
+                                <p className="font-medium text-gray-900">You</p>
+                                <p className="text-sm text-gray-500 truncate max-w-[150px]">{publicKey?.toString()}</p>
+                              </div>
+                              <div className="h-12 w-12 bg-[#d7dfbe] rounded-full flex items-center justify-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-gray-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                                </svg>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Connection Line */}
+                          <div className="flex-shrink-0 flex items-center gap-3">
+                            <div className="h-[2px] w-12 bg-[#d7dfbe]"></div>
+                            <div className="bg-[#f6ead7] rounded-lg px-3 py-1 text-xs font-medium">
+                              {path.depositCount} deposits
+                            </div>
+                            <div className="h-[2px] w-12 bg-[#d7dfbe]"></div>
+                          </div>
+
+                          {/* Other Party Side */}
+                          <div className="flex-1">
+                            <div className="inline-flex items-center gap-3">
+                              <div className="h-12 w-12 bg-[#f6ead7] rounded-full flex items-center justify-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-gray-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                                </svg>
+                              </div>
+                              <div>
+                                <p className="font-medium text-gray-900">{otherPartyEmail}</p>
+                                <p className="text-sm text-gray-500 truncate max-w-[150px]">
+                                  {path.senderPublicKey === publicKey?.toString() ? path.receiverPublicKey : path.senderPublicKey}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Balance Information */}
+                        <div className="mt-4 flex justify-center gap-4">
+                          {path.depositedUsdc > 0 && (
+                            <div className="bg-gray-50 rounded-lg px-4 py-2 inline-flex items-center gap-2">
+                              <Image
+                                src={usdcIcon}
+                                alt="USDC"
+                                width={20}
+                                height={20}
+                                className="w-5 h-5"
+                              />
+                              <span className="text-sm font-medium">{path.depositedUsdc} USDC</span>
+                            </div>
+                          )}
+                          {path.depositedUsdt > 0 && (
+                            <div className="bg-gray-50 rounded-lg px-4 py-2 inline-flex items-center gap-2">
+                              <Image
+                                src={usdtIcon}
+                                alt="USDT"
+                                width={20}
+                                height={20}
+                                className="w-5 h-5"
+                              />
+                              <span className="text-sm font-medium">{path.depositedUsdt} USDT</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="py-12 text-center">
+                  <img src={path.src} className="mx-auto mb-6 h-12 rounded-lg" />
+                  <h3 className="text-gray-900 text-lg font-medium">You have no trust paths yet!</h3>
+                  <p className="text-gray-500">Start connecting with your people here.</p>
+                  <Button className="bg-[#f6ead7] text-black font-semibold hover:font-bold hover:bg-[#f6ead7] cursor-pointer mt-6">
+                    Add New Persona <PlusIcon />
+                  </Button>
+                </div>
+              )}
             </TabsContent>
           </Tabs>
         </Card>

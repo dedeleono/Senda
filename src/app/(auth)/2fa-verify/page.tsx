@@ -15,14 +15,9 @@ import {
   InputOTPSlot
 } from "@/components/ui/input-otp";
 import Link from "next/link";
-// import Logo from "@/components/layouts/logo";
-// import ThemeToggle from "@/components/layouts/ThemeToggle/theme-toggle";
-import { Suspense } from "react";
 
-// Validation schema for the 2FA code
 const codeSchema = z.string().length(6).regex(/^\d+$/);
 
-// Animation variants
 const containerVariants = {
   hidden: { opacity: 0, y: 20 },
   visible: {
@@ -42,23 +37,10 @@ export default function TwoFactorVerifyPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isCodeValid, setIsCodeValid] = useState(true);
   const [isVerificationSuccessful, setIsVerificationSuccessful] = useState(false);
+
+  const callbackUrl = searchParams.get("callbackUrl") || "/home";
+
   
-  // Default to the wallet dashboard if no callback URL is provided
-  const callbackUrl = searchParams.get("callbackUrl") || "/en/";
-
-  useEffect(() => {
-    // If user is not logged in, redirect to login
-    if (status === "unauthenticated") {
-      router.push(`/login?callbackUrl=${encodeURIComponent(callbackUrl)}`);
-    }
-  }, [status, router, callbackUrl]);
-
-  // Auto-submit when code is 6 digits
-  useEffect(() => {
-    if (verificationCode.length === 6 && !isLoading) {
-      handleVerification();
-    }
-  }, [verificationCode]);
 
   const handleVerification = async (): Promise<void> => {
     try {
@@ -67,14 +49,12 @@ export default function TwoFactorVerifyPage() {
         return;
       }
 
-      // Validate the code format
       codeSchema.parse(verificationCode);
       setIsCodeValid(true);
       setIsLoading(true);
       
       console.log("Submitting 2FA verification for:", session.user.email);
       
-      // Call the verification API
       const response = await fetch("/api/auth/2fa/verify", {
         method: "POST",
         headers: {
@@ -89,17 +69,14 @@ export default function TwoFactorVerifyPage() {
       const data = await response.json();
       
       if (response.ok) {
-        // Verification was successful
         console.log("2FA verification successful");
         toast.success("Verification successful");
         setIsVerificationSuccessful(true);
         
-        // Update the session to include 2FA verification and clear needs2FA flag
         await update({
           needs2FA: false
         });
         
-        // Redirect to the callback URL
         console.log("Redirecting to:", callbackUrl);
         router.push(callbackUrl);
       } else {
@@ -124,8 +101,18 @@ export default function TwoFactorVerifyPage() {
     await handleVerification();
   };
 
-  // If still checking authentication status, show loading
-  // But don't show loading if verification was successful
+  useEffect(() => {
+    if (verificationCode.length === 6 && !isLoading) {
+      handleVerification()
+    }
+  }, [verificationCode, handleVerification, isLoading])
+
+  useEffect(() => {
+    if (status === 'unauthenticated') {
+      router.push(`/login?callbackUrl=${encodeURIComponent(callbackUrl)}`)
+    }
+  }, [status, router, callbackUrl])
+
   if (status === "loading" && !isVerificationSuccessful) {
     return (
       <div className="min-h-screen bg-primary/30 dark:bg-primary/30 flex items-center justify-center">

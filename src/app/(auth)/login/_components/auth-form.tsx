@@ -4,7 +4,7 @@ import * as z from 'zod'
 import { useState, useCallback, memo, useRef, useEffect } from "react";
 import { motion } from "framer-motion";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useForm } from "react-hook-form";
+import { useForm, UseFormReturn } from "react-hook-form";
 import { signIn } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
 import { Mail, CheckCircle2, ArrowRight, ArrowLeft } from "lucide-react";
@@ -28,7 +28,6 @@ import {
   CardFooter,
 } from "@/components/ui/card";
 
-// Lazy load GoogleSignInButton to reduce initial bundle size
 import dynamic from 'next/dynamic';
 const GoogleSignInButton = dynamic(
   () => import("@/components/auth/google-auth-button"),
@@ -87,7 +86,7 @@ const EmailField = memo(({
   form, 
   loading, 
 }: { 
-  form: any, 
+  form: UseFormReturn<UserFormValue>, 
   loading: boolean, 
 }) => (
   <FormField

@@ -33,7 +33,7 @@ import { UserService } from "../services/user";
 import { EscrowService } from "../services/escrow";
 import { handleRouterError } from "../utils/error-handler";
 import { CreateDepositResponse } from "@/types/transaction";
-import { DepositAccounts } from "@/types/senda-program";
+import { DepositAccounts, InitEscrowAccounts } from "@/types/senda-program";
 
 
 export const sendaRouter = router({
@@ -114,7 +114,7 @@ export const sendaRouter = router({
                         receiver: receiverPk,
                         usdcMint,
                         usdtMint,
-                    } as any)
+                    } as InitEscrowAccounts)
                     .transaction();
 
                 const { keypair: senderKp } = await loadUserSignerKeypair(
@@ -151,15 +151,12 @@ export const sendaRouter = router({
             const usdtMint = new PublicKey(USDT_MINT);
 
             try {
-                // 1. Get or create recipient user
                 const userResult = await UserService.getOrCreateUser(input.recipientEmail);
                 if (!userResult.success || !userResult.data) {
                     throw new Error(userResult.error?.message || 'Failed to get or create user');
                 }
                 const receiver = userResult.data;
 
-
-                // 2. Initialize escrow
                 const escrowResult = await EscrowService.initializeEscrow(
                     input.userId,
                     input.depositor,
@@ -181,9 +178,18 @@ export const sendaRouter = router({
                     program.programId
                 );
 
-                // Fetch escrow account data to get the next deposit index
-                const escrowAccount = await program.account.escrow.fetch(escrowPda);
-                const nextDepositIdx = escrowAccount.depositCount.toNumber();
+                // Get next deposit index, defaulting to 0 if escrow was just initialized
+                let nextDepositIdx = 0;
+                try {
+                    const escrowAccount = await program.account.escrow.fetch(escrowPda);
+                    nextDepositIdx = escrowAccount.depositCount.toNumber();
+                } catch (error) {
+                    // If escrow account doesn't exist, it means it was just initialized
+                    // so we can safely use deposit index 0
+                    if (!(error instanceof Error) || !error.message.includes('Account does not exist')) {
+                        console.log('Error fetching escrow account:', error);
+                    }
+                }
 
                 const [depositRecordPda] = findDepositRecordPDA(
                     escrowPda,
@@ -191,7 +197,6 @@ export const sendaRouter = router({
                     program.programId
                 );
 
-                // 5. Create on-chain deposit
                 const stableEnum = input.stable === "usdc" ? { usdc: {} } : { usdt: {} };
                 const authEnum =
                     input.authorization === "sender"
@@ -236,6 +241,23 @@ export const sendaRouter = router({
                             id: true,
                             status: true
                         }
+                    });
+
+                    // Create or update escrow record
+                    await tx.escrow.upsert({
+                        where: {
+                            id: escrowData.escrowAddress
+                        },
+                        create: {
+                            id: escrowData.escrowAddress,
+                            senderPublicKey: input.depositor,
+                            receiverPublicKey: receiver.publicKey,
+                            depositedUsdc: 0,
+                            depositedUsdt: 0,
+                            depositCount: 0,
+                            state: 'Active'
+                        },
+                        update: {}
                     });
 
                     const dep = await tx.depositRecord.create({

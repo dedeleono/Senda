@@ -1,9 +1,8 @@
 import { PublicKey } from '@solana/web3.js';
-import { TRPCError } from '@trpc/server';
 import { BN, AnchorProvider } from '@coral-xyz/anchor';
 import { USDC_MINT, USDT_MINT } from '@/lib/constants';
 import { InitEscrowAccounts } from '@/types/senda-program';
-import { loadSignerKeypair, getProvider } from '@/utils/dapp-wallets';
+import { loadUserSignerKeypair, getProvider } from '@/utils/dapp-wallets';
 import { createAta } from '@/lib/senda/helpers';
 
 export interface EscrowData {
@@ -31,7 +30,7 @@ export class EscrowService {
     seed: number
   ): Promise<EscrowServiceResponse> {
     try {
-      // Input validation
+
       if (!userId || typeof userId !== 'string') {
         throw new Error('Invalid userId provided');
       }
@@ -42,7 +41,6 @@ export class EscrowService {
         throw new Error('Invalid receiverPublicKey provided');
       }
 
-      // Validate public keys format
       if (!PublicKey.isOnCurve(new PublicKey(senderPublicKey))) {
         throw new Error('Invalid senderPublicKey format');
       }
@@ -67,7 +65,6 @@ export class EscrowService {
         program.programId
       );
 
-      // Check if escrow already exists
       const escrowAccount = await program.provider.connection.getAccountInfo(escrowPda);
       if (escrowAccount !== null) {
         return {
@@ -80,23 +77,25 @@ export class EscrowService {
         };
       }
 
+      // Sender ATAs
       await createAta(usdcMint, senderPk);
       await createAta(usdtMint, senderPk);
 
+      // Receiver ATAs
       await createAta(usdcMint, receiverPk);
       await createAta(usdtMint, receiverPk);
 
-      // Initialize new escrow
-      const { keypair: senderKeypair } = await loadSignerKeypair(userId, senderPk);
+      const { keypair: senderKeypair } = await loadUserSignerKeypair(userId);
 
       const tx = await program.methods
         .initializeEscrow(new BN(seed))
         .accounts({
           feePayer: feePayer.publicKey,
+          // escrow: escrowPda,
           sender: senderPk,
           receiver: receiverPk,
-          usdcMint: USDC_MINT,
-          usdtMint: USDT_MINT,
+          usdcMint,
+          usdtMint,
         } as InitEscrowAccounts)
         .transaction();
 
