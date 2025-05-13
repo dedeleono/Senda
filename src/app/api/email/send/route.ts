@@ -1,13 +1,34 @@
 import { auth } from "@/lib/auth/auth";
-import { prisma } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { createTransport } from 'nodemailer';
+import DepositNotificationEmail from '@/components/emails/depositNotification';
+import GuestDepositNotificationEmail from '@/components/emails/guestDepositNotification';
+import { render } from '@react-email/render';
 
-interface EmailRequest {
+interface BaseEmailRequest {
+  type: 'direct' | 'template';
+  email: string;
+}
+
+interface DirectEmailRequest extends BaseEmailRequest {
+  type: 'direct';
   subject: string;
   content: string;
-  recipients: string[];
 }
+
+interface TemplateEmailRequest extends BaseEmailRequest {
+  type: 'template';
+  template: 'DepositNotification' | 'GuestDepositNotification';
+  data: {
+    email: string;
+    amount: string;
+    token: string;
+    senderEmail: string;
+    inviteUrl?: string;
+  };
+}
+
+type EmailRequest = DirectEmailRequest | TemplateEmailRequest;
 
 export async function POST(req: Request) {
   try {
@@ -22,7 +43,7 @@ export async function POST(req: Request) {
       }, { status: 500 });
     }
 
-    const { subject, content, recipients } = await req.json() as EmailRequest;
+    const payload = await req.json() as EmailRequest;
 
     const transport = createTransport({
       host: "smtp.gmail.com",
@@ -38,27 +59,57 @@ export async function POST(req: Request) {
       }
     });
 
-    const results = await Promise.allSettled(
-      recipients.map(async (email) => {
-        return transport.sendMail({
-          from: `Colegio Saber Ver <${process.env.EMAIL_FROM}>`,
-          to: email,
-          subject,
-          html: content,
-        });
-      })
-    );
+    let html: string;
+    let subject: string;
+    let to: string;
 
-    const successful = results.filter(r => r.status === 'fulfilled').length;
-    const failed = results.filter(r => r.status === 'rejected').length;
+    if (payload.type === 'template') {
+      to = payload.data.email;
+      
+      switch (payload.template) {
+        case 'DepositNotification':
+          html = await render(DepositNotificationEmail({
+            email: payload.data.email,
+            amount: parseFloat(payload.data.amount),
+            token: payload.data.token,
+            senderName: payload.data.senderEmail
+          }));
+          subject = `You've received ${payload.data.amount} ${payload.data.token}`;
+          break;
+        
+        case 'GuestDepositNotification':
+          if (!payload.data.inviteUrl) {
+            throw new Error('inviteUrl is required for guest notifications');
+          }
+          html = await render(GuestDepositNotificationEmail({
+            inviteUrl: payload.data.inviteUrl,
+            receiverEmail: payload.data.email,
+            amount: payload.data.amount,
+            token: payload.data.token,
+            senderEmail: payload.data.senderEmail
+          }));
+          subject = `You've received ${payload.data.amount} ${payload.data.token}`;
+          break;
+          
+        default:
+          throw new Error(`Unsupported template: ${payload.template}`);
+      }
+    } else {
+      to = payload.email;
+      html = payload.content;
+      subject = payload.subject;
+    }
+
+    const result = await transport.sendMail({
+      from: process.env.EMAIL_FROM,
+      to,
+      subject,
+      html,
+    });
 
     return NextResponse.json({
       success: true,
-      summary: {
-        total: recipients.length,
-        successful,
-        failed
-      }
+      messageId: result.messageId
     });
   } catch (error) {
     console.error("[EMAIL_SEND]", error);

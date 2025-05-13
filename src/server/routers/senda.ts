@@ -34,6 +34,8 @@ import { EscrowService } from "../services/escrow";
 import { handleRouterError } from "../utils/error-handler";
 import { CreateDepositResponse } from "@/types/transaction";
 import { DepositAccounts, InitEscrowAccounts } from "@/types/senda-program";
+import { sendGuestDepositNotificationEmail } from "@/lib/validations/guest-deposit-notification";
+import { sendDepositNotificationEmail } from "@/lib/validations/deposit-notification";
 
 
 export const sendaRouter = router({
@@ -146,17 +148,28 @@ export const sendaRouter = router({
             })
         )
         .mutation(async ({ ctx, input }): Promise<CreateDepositResponse> => {
+            console.log('Starting createDeposit with input:', {
+                ...input,
+                userId: '[REDACTED]' // Don't log sensitive data
+            });
 
             const usdcMint = new PublicKey(USDC_MINT);
             const usdtMint = new PublicKey(USDT_MINT);
 
             try {
+                console.log('Getting or creating user...');
                 const userResult = await UserService.getOrCreateUser(input.recipientEmail);
                 if (!userResult.success || !userResult.data) {
+                    console.error('Failed to get/create user:', userResult.error);
                     throw new Error(userResult.error?.message || 'Failed to get or create user');
                 }
                 const receiver = userResult.data;
+                console.log('User retrieved/created successfully:', {
+                    role: receiver.role,
+                    isNewUser: !receiver.id
+                });
 
+                console.log('Initializing escrow...');
                 const escrowResult = await EscrowService.initializeEscrow(
                     input.userId,
                     input.depositor,
@@ -164,31 +177,32 @@ export const sendaRouter = router({
                     0
                 );
                 if (!escrowResult.success || !escrowResult.data) {
+                    console.error('Failed to initialize escrow:', escrowResult.error);
                     throw new Error(escrowResult.error?.message || 'Failed to initialize escrow');
                 }
                 const escrowData = escrowResult.data;
+                console.log('Escrow initialized:', { escrowAddress: escrowData.escrowAddress });
 
                 const { program, feePayer } = getProvider();
                 const depositorPk = new PublicKey(input.depositor);
                 const counterpartyPk = new PublicKey(receiver.publicKey);
 
+                console.log('Setting up deposit transaction...');
                 const [escrowPda] = findEscrowPDA(
                     depositorPk,
                     counterpartyPk,
                     program.programId
                 );
 
-                // Get next deposit index, defaulting to 0 if escrow was just initialized
+                // Get next deposit index
                 let nextDepositIdx = 0;
                 try {
+                    console.log('Fetching escrow account...');
                     const escrowAccount = await program.account.escrow.fetch(escrowPda);
                     nextDepositIdx = escrowAccount.depositCount.toNumber();
+                    console.log('Current deposit index:', nextDepositIdx);
                 } catch (error) {
-                    // If escrow account doesn't exist, it means it was just initialized
-                    // so we can safely use deposit index 0
-                    if (!(error instanceof Error) || !error.message.includes('Account does not exist')) {
-                        console.log('Error fetching escrow account:', error);
-                    }
+                    console.log('No existing escrow account found, using index 0');
                 }
 
                 const [depositRecordPda] = findDepositRecordPDA(
@@ -207,26 +221,32 @@ export const sendaRouter = router({
 
                 const lamports = Math.round(input.amount * 1_000_000);
 
+                console.log('Building deposit transaction...');
+
                 const tx = await program.methods
                     .deposit(stableEnum as any, authEnum as any, new BN(lamports))
                     .accounts({
                         escrow: escrowPda,
                         depositor: depositorPk,
                         counterparty: counterpartyPk,
-                        usdcMint: usdcMint,
-                        usdtMint: usdtMint,
+                        usdcMint,
+                        usdtMint,
                         depositRecord: depositRecordPda,
                         feePayer: feePayer.publicKey,
                     } as DepositAccounts)
                     .transaction();
-                    
+
+                console.log('Loading depositor keypair...');
                 const { keypair: depositor } = await loadUserSignerKeypair(
                     ctx.session!.user.id
                 );
 
+                console.log('Sending deposit transaction...');
                 const signature = await program.provider.sendAndConfirm!(tx, [feePayer, depositor]);
+                console.log('Deposit transaction confirmed:', signature);
 
-                // 6. Create DB records
+                // Create DB records
+                console.log('Creating database records...');
                 const { transaction, deposit } = await prisma.$transaction(async (tx) => {
                     const txn = await tx.transaction.create({
                         data: {
@@ -243,7 +263,6 @@ export const sendaRouter = router({
                         }
                     });
 
-                    // Create or update escrow record
                     await tx.escrow.upsert({
                         where: {
                             id: escrowData.escrowAddress
@@ -276,22 +295,44 @@ export const sendaRouter = router({
 
                     return { transaction: txn, deposit: dep };
                 });
+                console.log('Database records created successfully');
 
-                // 7. Send notification email
-                await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/email/send`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        template: receiver.role === 'GUEST' ? "GuestDepositNotification" : "DepositNotification",
-                        data: {
-                            email: input.recipientEmail,
-                            amount: input.amount.toFixed(2),
-                            token: input.stable.toUpperCase(),
-                            senderEmail: ctx.session.user.email
-                        }
-                    }),
-                });
+                // Send notification email
+                try {
+                    console.log('Sending notification email...');
+                    if (receiver.role === 'GUEST') {
+                        const inviteToken = crypto.randomBytes(32).toString('hex');
+                        await prisma.verificationToken.create({
+                            data: {
+                                identifier: input.recipientEmail,
+                                token: inviteToken,
+                                expires: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
+                            },
+                        });
 
+                        const inviteUrl = `${process.env.NEXT_PUBLIC_APP_URL}/invitation?token=${inviteToken}`;
+                        await sendGuestDepositNotificationEmail(
+                            input.recipientEmail,
+                            inviteUrl,
+                            ctx.session.user.email!,
+                            input.amount.toFixed(2),
+                            input.stable.toUpperCase(),
+                            ctx.session.user.name || undefined
+                        );
+                    } else {
+                        await sendDepositNotificationEmail(
+                            input.recipientEmail,
+                            input.amount,
+                            input.stable.toUpperCase(),
+                            ctx.session.user.name || undefined
+                        );
+                    }
+                    console.log('Notification email sent successfully');
+                } catch (error) {
+                    console.error('Error sending email notification:', error);
+                }
+
+                console.log('Deposit process completed successfully');
                 return {
                     success: true,
                     data: {
