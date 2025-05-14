@@ -34,9 +34,11 @@ export default function StatusTimeline({ statusHistory, signatures }: StatusTime
     }
   });
   
-  const sortedEvents = [...allEvents].sort((a, b) => 
-    b.timestamp.getTime() - a.timestamp.getTime()
-  );
+  const sortedEvents = [...allEvents].sort((a, b) => {
+    const timestampA = a.timestamp instanceof Date ? a.timestamp : new Date(a.timestamp);
+    const timestampB = b.timestamp instanceof Date ? b.timestamp : new Date(b.timestamp);
+    return timestampB.getTime() - timestampA.getTime();
+  });
 
   const getStatusIcon = (status: string) => {
     if (status.includes('COMPLETED') || status.includes('SIGNATURE')) {
