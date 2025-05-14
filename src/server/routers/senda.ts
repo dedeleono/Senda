@@ -200,14 +200,18 @@ export const sendaRouter = router({
                     console.log('Fetching escrow account...');
                     const escrowAccount = await program.account.escrow.fetch(escrowPda);
                     nextDepositIdx = escrowAccount.depositCount.toNumber();
-                    console.log('Current deposit index:', nextDepositIdx);
+                    console.log('Next deposit index:', nextDepositIdx);
                 } catch (error) {
                     console.log('No existing escrow account found, using index 0');
+                    nextDepositIdx = 0;
                 }
 
-                const [depositRecordPda] = findDepositRecordPDA(
-                    escrowPda,
-                    nextDepositIdx,
+                const [depositRecordPda] = PublicKey.findProgramAddressSync(
+                    [
+                        Buffer.from("deposit"),
+                        escrowPda.toBuffer(),
+                        new BN(nextDepositIdx).toArrayLike(Buffer, "le", 8)
+                    ],
                     program.programId
                 );
 
