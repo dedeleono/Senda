@@ -29,7 +29,7 @@ interface DepositInput {
   depositor: string;
   recipientEmail: string;
   stable: 'usdc' | 'usdt';
-  authorization: 'sender' | 'receiver' | 'both';
+  authorization: SignatureType;
   amount: number;
 }
 

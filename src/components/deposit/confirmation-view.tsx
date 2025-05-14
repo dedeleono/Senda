@@ -11,6 +11,7 @@ import { useSendaProgram } from '@/stores/use-senda-program';
 import { toast } from 'sonner';
 import type { CreateDepositResponse } from '@/types/transaction';
 import { useAuth } from '@/hooks/use-auth';
+import { SignatureType } from '@prisma/client';
 
 interface ConfirmationViewProps {
   onComplete: (signature: string, depositId: string) => void;
@@ -66,7 +67,7 @@ const ConfirmationView = ({ onComplete }: ConfirmationViewProps) => {
         depositor: publicKey.toString(),
         recipientEmail: recipient.email,
         stable: amount.token.toLowerCase() as 'usdc' | 'usdt',
-        authorization,
+        authorization: authorization as SignatureType,
         amount: amount.value
       });
       
