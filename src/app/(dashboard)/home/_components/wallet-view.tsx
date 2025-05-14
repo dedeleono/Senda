@@ -21,6 +21,7 @@ import TransactionDetails from '@/components/transactions/transaction-details'
 import { Badge } from '@/components/ui/badge'
 import { useWalletStore } from '@/stores/use-wallet-store'
 import WithdrawModal, { WithdrawModalRef } from '@/components/withdraw/withdraw-modal'
+import AddFundsModal, { AddFundsModalRef } from '@/components/deposit/add-funds-modal'
 
 interface TransactionDetailsData {
   id: string;
@@ -53,6 +54,7 @@ export default function SendaWallet() {
   const walletQRDialogRef = useRef<WalletQRDialogRef>(null)
   const depositModalRef = useRef<DepositModalRef>(null)
   const withdrawModalRef = useRef<WithdrawModalRef>(null)
+  const addFundsModalRef = useRef<AddFundsModalRef>(null)
 
   const { publicKey } = useWalletStore()
   const sendaWalletAddress = publicKey?.toString() || null
@@ -89,6 +91,10 @@ export default function SendaWallet() {
 
   const handleOpenWithdrawModal = () => {
     withdrawModalRef.current?.open()
+  }
+
+  const handleOpenAddFundsModal = () => {
+    addFundsModalRef.current?.open()
   }
 
   const handleDepositComplete = (transactionId: string, depositId: string, recipientRole?: string) => {
@@ -233,17 +239,13 @@ export default function SendaWallet() {
               Send <ArrowUp className="h-4 w-4" />
             </Button>
 
-            <div className="w-full relative flex items-center justify-center">
-              <Badge className="absolute -top-2 left-1/2 -translate-x-1/2 z-10 cursor-not-allowed text-[7px] rounded-sm">
-                coming soon
-              </Badge>
-              <Button
-                variant="default"
-                className="bg-[#f6ead7] text-black hover:bg-[#f6ead7] hover:font-bold font-semibold w-full opacity-50 cursor-not-allowed md:h-auto h-12"
-              >
-                Add Funds <PlusIcon />
-              </Button>
-            </div>
+            <Button
+              onClick={handleOpenAddFundsModal}
+              variant="default"
+              className="bg-[#f6ead7] text-black hover:!bg-[#f6ead7] hover:!font-bold hover:!scale-103 font-semibold w-full transition-all duration-300 cursor-pointer md:h-auto h-12"
+            >
+              Add Funds <PlusIcon className="h-4 w-4" />
+            </Button>
 
             <Button
               variant="ghost"
@@ -253,17 +255,18 @@ export default function SendaWallet() {
               Withdraw <ArrowDown className="h-4 w-4" />
             </Button>
 
-            <Button
+            {/* <Button
               variant="ghost"
               className="border border-[#d7dfbe] text-black font-semibold hover:!bg-transparent hover:!scale-103 hover:!text-black hover:!border-[#d7dfbe] transition-all duration-300 cursor-pointer md:h-auto h-12"
               onClick={handleOpenWalletQR}
             >
               Your Senda Wallet <Wallet className="h-4 w-4" />
-            </Button>
+            </Button> */}
 
             <WalletQRDialog ref={walletQRDialogRef} walletAddress={sendaWalletAddress || ''} />
             <DepositModal ref={depositModalRef} onComplete={handleDepositComplete} />
             <WithdrawModal ref={withdrawModalRef} />
+            <AddFundsModal ref={addFundsModalRef} onWalletQRSelected={handleOpenWalletQR} />
           </div>
         </Card>
 
