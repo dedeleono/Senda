@@ -1,10 +1,11 @@
 import NextAuth from "next-auth";
-import { PrismaAdapter } from "@auth/prisma-adapter";
-import { prisma } from "@/lib/db";
 import { authConfig } from "./auth.config";
 import { sendAuthEmail } from "@/lib/validations/auth-email";
 import Email from "next-auth/providers/email";
 import { customPrismaAdapter } from "./auth-adapter";
+import { GuestService } from "@/server/services/guest"
+import { sendGuestDepositNotificationEmail } from "../validations/guest-deposit-notification";
+import { UserRole } from "@prisma/client";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
     ...authConfig,
@@ -40,17 +41,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             async sendVerificationRequest({ identifier: email, url }) {
                 try {
                     if (!process.env.EMAIL_SERVER_USER || !process.env.EMAIL_SERVER_PASSWORD) {
-                        console.error('Missing email configuration:', {
-                            hasEmailUser: !!process.env.EMAIL_SERVER_USER,
-                            hasEmailPassword: !!process.env.EMAIL_SERVER_PASSWORD,
-                            emailHost: process.env.EMAIL_SERVER_HOST,
-                            emailPort: process.env.EMAIL_SERVER_PORT
-                        });
                         throw new Error('Missing required email configuration');
                     }
-
                     await sendAuthEmail(email, url);
-                    console.log('Verification email sent successfully');
                 } catch (error) {
                     console.error('Error in sendVerificationRequest:', error);
                     throw error;
@@ -60,27 +53,42 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     ],
     callbacks: {
         ...authConfig.callbacks,
-        async jwt({ token, user }) {
+        async jwt({ token, user, trigger, session }) {
             console.log('[AUTH DEBUG] JWT Callback', { 
                 hasUser: !!user, 
-                tokenSub: token.sub 
+                tokenSub: token.sub,
+                trigger,
+                userDetails: user ? JSON.stringify(user) : 'no user'
             });
-            if (user?.sendaWalletPublicKey) {
-                token.sendaWalletPublicKey = user.sendaWalletPublicKey;
+
+            if (user) {
+                token.id = user.id;
+                token.email = user.email;
+                token.name = user.name;
+                token.picture = user.image;
+                if (user.sendaWalletPublicKey) {
+                    token.sendaWalletPublicKey = user.sendaWalletPublicKey;
+                }
             }
+
+            if (trigger === 'update' && session) {
+                return { ...token, ...session.user };
+            }
+
             return token;
         },
         async session({ session, token }) {
             console.log('[AUTH DEBUG] Session Callback', { 
                 hasToken: !!token, 
-                hasSession: !!session 
+                hasSession: !!session,
+                tokenDetails: token ? JSON.stringify(token) : 'no token'
             });
             
-            if (session.user) {
-                // Add id from token.sub to the user object
-                session.user.id = token.sub as string;
-                
-                // Add wallet public key if available
+            if (token && session.user) {
+                session.user.id = token.id as string;
+                session.user.email = token.email as string;
+                session.user.name = token.name as string;
+                session.user.image = token.picture as string;
                 if (token.sendaWalletPublicKey) {
                     session.user.sendaWalletPublicKey = token.sendaWalletPublicKey as string;
                 }

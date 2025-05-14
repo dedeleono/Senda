@@ -1,8 +1,10 @@
-import { router, protectedProcedure } from "../trpc";
+import { router, protectedProcedure, publicProcedure } from "../trpc";
 import { prisma } from "@/lib/db";
 import { z } from "zod";
 import { Keypair } from "@solana/web3.js";
 import { encryptPrivateKey } from "@/lib/utils/crypto";
+import { GuestService } from "../services/guest";
+import { TRPCError } from "@trpc/server";
 
 const userRouter = router({
     getUserById: protectedProcedure.input(z.object({ userId: z.string() })).query(async ({ input }) => {
@@ -78,7 +80,61 @@ const userRouter = router({
             },
         });
         return newUser;
-    })
+    }),
+    verifyInvitation: publicProcedure
+        .input(z.object({
+            token: z.string()
+        }))
+        .query(async ({ input }) => {
+            try {
+                const verificationToken = await prisma.verificationToken.findUnique({
+                    where: { token: input.token },
+                });
+
+                if (!verificationToken) {
+                    throw new TRPCError({
+                        code: 'NOT_FOUND',
+                        message: 'Invalid token'
+                    });
+                }
+
+                if (new Date() > verificationToken.expires) {
+                    throw new TRPCError({
+                        code: 'BAD_REQUEST',
+                        message: 'Token has expired'
+                    });
+                }
+
+                // Get the deposit information associated with this token
+                const deposit = await prisma.depositRecord.findFirst({
+                    where: {
+                        userId: verificationToken.identifier
+                    },
+                    orderBy: {
+                        createdAt: 'desc'
+                    },
+                    select: {
+                        amount: true,
+                        stable: true
+                    }
+                });
+
+                return {
+                    success: true,
+                    data: {
+                        email: verificationToken.identifier,
+                        amount: deposit?.amount.toString(),
+                        token: deposit?.stable
+                    }
+                };
+            } catch (error) {
+                console.error("Error verifying invitation:", error);
+                throw new TRPCError({
+                    code: 'INTERNAL_SERVER_ERROR',
+                    message: error instanceof Error ? error.message : 'Failed to verify invitation'
+                });
+            }
+        })
 });
 
 export default userRouter;

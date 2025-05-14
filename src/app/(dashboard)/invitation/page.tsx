@@ -10,15 +10,19 @@ import { Toaster } from '@/components/ui/sonner';
 import { Loader2 } from 'lucide-react';
 import { signIn } from 'next-auth/react';
 import { toast, useSonner } from 'sonner';
+import { trpc } from '@/app/_trpc/client';
 
-interface VerificationResponse {
-  success: boolean;
-  data?: {
+interface VerificationData {
     email: string;
     amount?: string;
     token?: string;
-  };
-  error?: string;
+    escrowId?: string;
+}
+
+interface VerificationResponse {
+    success: boolean;
+    data?: VerificationData;
+    error?: string;
 }
 
 export default function InvitationPage() {
@@ -31,38 +35,33 @@ export default function InvitationPage() {
   const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  useEffect(() => {
-    async function verifyToken() {
-      if (!token) {
-        toast.error('No invitation token provided.');
-        router.push('/');
-        return;
-      }
-
-      try {
-        const response = await fetch('/api/verify-invitation', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token })
-        });
-
-        const data: VerificationResponse = await response.json();
-
-        if (!data.success || !data.data) {
-          throw new Error(data.error || 'Invalid invitation token');
-        }
-
-        setVerificationData(data.data);
-      } catch (error) {
-        toast.error('Invalid invitation');
-        router.push('/');
-      } finally {
-        setIsLoading(false);
-      }
+  const verificationQuery = trpc.userRouter.verifyInvitation.useQuery(
+    { token: token! },
+    {
+      enabled: !!token,
+      retry: false
     }
+  );
 
-    verifyToken();
-  }, [token, router, toast]);
+  useEffect(() => {
+    if (verificationQuery.data?.success && verificationQuery.data.data) {
+      setVerificationData(verificationQuery.data.data);
+    }
+    if (verificationQuery.error) {
+      toast.error('Invalid invitation');
+      router.push('/');
+    }
+    if (!verificationQuery.isLoading) {
+      setIsLoading(false);
+    }
+  }, [verificationQuery.data, verificationQuery.error, verificationQuery.isLoading, router]);
+
+  useEffect(() => {
+    if (!token) {
+      toast.error('No invitation token provided.');
+      router.push('/');
+    }
+  }, [token, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

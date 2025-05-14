@@ -15,6 +15,7 @@ const PUBLIC_ROUTES = [
   '/2fa-verify',
   '/about',
   '/contact',
+  '/invitation',
 ];
 
 export function middleware(request: NextRequest) {

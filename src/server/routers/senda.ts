@@ -311,6 +311,17 @@ export const sendaRouter = router({
                         });
 
                         const inviteUrl = `${process.env.NEXT_PUBLIC_APP_URL}/invitation?token=${inviteToken}`;
+                        await prisma.verificationToken.update({
+                            where: { token: inviteToken },
+                            data: {
+                                // Add any additional metadata you need for the invitation
+                                metadata: JSON.stringify({
+                                    escrowId: escrowData.escrowAddress,
+                                    amount: input.amount,
+                                    token: input.stable.toUpperCase(),
+                                })
+                            }
+                        });
                         await sendGuestDepositNotificationEmail(
                             input.recipientEmail,
                             inviteUrl,
