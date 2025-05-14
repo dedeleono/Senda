@@ -228,7 +228,7 @@ export const useSendaProgram = create<SendaStore>()(
             }
           });
           
-          return result;
+          return result.result.data;
         } catch (error) {
           const typedError = error instanceof Error ? error : new Error(String(error));
           set({ state: { ...get().state, isProcessing: false, lastError: typedError } });

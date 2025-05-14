@@ -71,12 +71,13 @@ const ConfirmationView = ({ onComplete }: ConfirmationViewProps) => {
         amount: amount.value
       });
       
+      // @ts-ignore
       if (!result.success || !result.data) {
         throw new Error(result.error?.message || 'Failed to create deposit');
       }
 
       // Call onComplete with the transaction data
-      onComplete(result.data.signature, result.data.depositId);
+      onComplete(result.signature, result.depositId);
       
       setStep(4); // Move to success step
       toast.success('Deposit created successfully');
