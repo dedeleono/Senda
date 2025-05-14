@@ -347,7 +347,7 @@ export default function SendaWallet() {
                         id={transaction.id}
                         amount={transaction.amount}
                         token={transaction.depositRecord?.stable === 'usdc' ? 'USDC' : 'USDT'}
-                        recipientEmail="recipient@example.com"
+                        recipientEmail={transaction.destinationUserId ? transaction.destinationUser?.email as string : 'recipient@example.com'}
                         createdAt={new Date(transaction.createdAt)}
                         status={transaction.status}
                         authorization={transaction.depositRecord?.policy as SignatureType}

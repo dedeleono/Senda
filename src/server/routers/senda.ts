@@ -252,6 +252,13 @@ export const sendaRouter = router({
 
                 // Create DB records
                 console.log('Creating database records...');
+                
+                const existingEscrow = await prisma.escrow.findUnique({
+                    where: {
+                        id: escrowData.escrowAddress
+                    }
+                });
+                
                 const { transaction, deposit } = await prisma.$transaction(async (tx) => {
                     const txn = await tx.transaction.create({
                         data: {
@@ -269,21 +276,26 @@ export const sendaRouter = router({
                         }
                     });
 
-                    await tx.escrow.upsert({
-                        where: {
-                            id: escrowData.escrowAddress
-                        },
-                        create: {
-                            id: escrowData.escrowAddress,
-                            senderPublicKey: input.depositor,
-                            receiverPublicKey: receiver.publicKey,
-                            depositedUsdc: 0,
-                            depositedUsdt: 0,
-                            depositCount: 0,
-                            state: 'Active'
-                        },
-                        update: {}
-                    });
+                    if (existingEscrow) {
+                        await tx.escrow.update({
+                            where: { id: existingEscrow.id },
+                            data: {
+                                depositCount: existingEscrow.depositCount + 1
+                            }
+                        });
+                    } else {
+                        await tx.escrow.create({
+                            data: {
+                                id: escrowData.escrowAddress,
+                                senderPublicKey: input.depositor,
+                                receiverPublicKey: receiver.publicKey,
+                                depositedUsdc: 0,
+                                depositedUsdt: 0,
+                                depositCount: 0,
+                                state: 'Active'
+                            }
+                        });
+                    }
 
                     const dep = await tx.depositRecord.create({
                         data: {
@@ -311,6 +323,15 @@ export const sendaRouter = router({
                             transactionId: txn.id
                         },
                     });
+
+                    if (!existingEscrow) {
+                        await tx.escrow.update({
+                            where: { id: escrowData.escrowAddress },
+                            data: {
+                                depositCount: 1
+                            }
+                        });
+                    }
 
                     return { transaction: txn, deposit: dep };
                 });
