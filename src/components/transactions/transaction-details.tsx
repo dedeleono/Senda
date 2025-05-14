@@ -80,13 +80,13 @@ export default function TransactionDetails({
       
       if (status === 'PENDING') {
         // Handle different authorization scenarios
-        if (authorization === 'receiver' && !isDepositor) {
+        if (authorization === 'RECEIVER' && !isDepositor) {
           // Receiver-only authorization - can release immediately
           await handleReleaseFunds(depositIndex);
-        } else if (authorization === 'sender' && isDepositor) {
+        } else if (authorization === 'SENDER' && isDepositor) {
           // Sender-only authorization - can release immediately
           await handleReleaseFunds(depositIndex);
-        } else if (authorization === 'both') {
+        } else if (authorization === 'DUAL') {
           // Dual signature required - need to check existing signatures
           const currentSignatures = transaction.signatures.map(sig => {
             try {
@@ -205,9 +205,9 @@ export default function TransactionDetails({
     const { status, authorization, isDepositor } = transaction;
     
     if (status === 'PENDING') {
-      if (isDepositor && (authorization === 'sender' || authorization === 'both')) {
+      if (isDepositor && (authorization === 'SENDER' || authorization === 'DUAL')) {
         return 'Release Funds';
-      } else if (!isDepositor && (authorization === 'receiver' || authorization === 'both')) {
+      } else if (!isDepositor && (authorization === 'RECEIVER' || authorization === 'DUAL')) {
         return 'Withdraw Funds';
       }
       
@@ -248,11 +248,11 @@ export default function TransactionDetails({
 
   const getAuthorizationText = (authorization: AuthorizedBy) => {
     switch (authorization) {
-      case 'sender':
+      case 'SENDER':
         return 'Sender only';
-      case 'receiver':
+      case 'RECEIVER':
         return 'Receiver only';
-      case 'both':
+      case 'DUAL':
         return 'Both parties must approve';
       default:
         return authorization;
@@ -264,15 +264,15 @@ export default function TransactionDetails({
     
     if (status !== 'PENDING') return false;
     
-    if (isDepositor && authorization === 'sender') {
+    if (isDepositor && authorization === 'SENDER') {
       return true;
     }
     
-    if (!isDepositor && authorization === 'receiver') {
+    if (!isDepositor && authorization === 'RECEIVER') {
       return true;
     }
     
-    if (authorization === 'both') {
+    if (authorization === 'DUAL') {
       const userRole = isDepositor ? 'sender' : 'receiver';
       const hasUserSigned = signatures.some(
         sig => sig.role === userRole && sig.status === 'signed'

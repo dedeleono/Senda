@@ -2,6 +2,7 @@
 
 import { CheckCircle, XCircle, Clock, AlertCircle } from 'lucide-react';
 import { format } from 'date-fns';
+import { SignatureType } from '@prisma/client';
 
 interface TimelineEvent {
   status: string;
@@ -11,7 +12,7 @@ interface TimelineEvent {
 
 interface SignatureEvent {
   signer: string;
-  role: 'sender' | 'receiver';
+  role: SignatureType;
   timestamp?: Date;
   status: 'signed' | 'pending';
 }
@@ -27,18 +28,16 @@ export default function StatusTimeline({ statusHistory, signatures }: StatusTime
   signatures.forEach(sig => {
     if (sig.timestamp && sig.status === 'signed') {
       allEvents.push({
-        status: `SIGNATURE_${sig.role.toUpperCase()}`,
+        status: `SIGNATURE_${sig.role}`,
         timestamp: sig.timestamp,
         actor: sig.signer
       });
     }
   });
   
-  const sortedEvents = [...allEvents].sort((a, b) => {
-    const timestampA = a.timestamp instanceof Date ? a.timestamp : new Date(a.timestamp);
-    const timestampB = b.timestamp instanceof Date ? b.timestamp : new Date(b.timestamp);
-    return timestampB.getTime() - timestampA.getTime();
-  });
+  const sortedEvents = [...allEvents].sort((a, b) => 
+    b.timestamp.getTime() - a.timestamp.getTime()
+  );
 
   const getStatusIcon = (status: string) => {
     if (status.includes('COMPLETED') || status.includes('SIGNATURE')) {
@@ -56,7 +55,8 @@ export default function StatusTimeline({ statusHistory, signatures }: StatusTime
     const status = event.status;
     
     if (status.includes('SIGNATURE')) {
-      const role = status.includes('SENDER') ? 'Sender' : 'Receiver';
+      const role = status.includes('SENDER') ? 'Sender' : 
+                  status.includes('RECEIVER') ? 'Receiver' : 'Dual';
       return `${role} signed`;
     }
     
@@ -132,7 +132,10 @@ export default function StatusTimeline({ statusHistory, signatures }: StatusTime
               <div key={index} className="flex items-center">
                 <Clock className="h-4 w-4 text-yellow-500 mr-2" />
                 <div>
-                  <span className="text-sm">{sig.role === 'sender' ? 'Sender' : 'Receiver'} signature required</span>
+                  <span className="text-sm">
+                    {sig.role === SignatureType.SENDER ? 'Sender' : 
+                     sig.role === SignatureType.RECEIVER ? 'Receiver' : 'Dual'} signature required
+                  </span>
                   <p className="text-xs text-gray-500">{sig.signer}</p>
                 </div>
               </div>

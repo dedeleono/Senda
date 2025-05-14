@@ -36,6 +36,7 @@ import { CreateDepositResponse } from "@/types/transaction";
 import { DepositAccounts, InitEscrowAccounts, ReleaseResult } from "@/types/senda-program";
 import { sendGuestDepositNotificationEmail } from "@/lib/validations/guest-deposit-notification";
 import { sendDepositNotificationEmail } from "@/lib/validations/deposit-notification";
+import { SignatureType } from "@/components/transactions/transaction-card";
 
 
 export const sendaRouter = router({
@@ -143,7 +144,7 @@ export const sendaRouter = router({
                 depositor: z.string(),
                 recipientEmail: z.string().email(),
                 stable: z.enum(["usdc", "usdt"]),
-                authorization: z.enum(["sender", "receiver", "both"]),
+                authorization: z.enum(["SENDER", "RECEIVER", "DUAL"]),
                 amount: z.number().positive()
             })
         )
@@ -217,9 +218,9 @@ export const sendaRouter = router({
 
                 const stableEnum = input.stable === "usdc" ? { usdc: {} } : { usdt: {} };
                 const authEnum =
-                    input.authorization === "sender"
+                    input.authorization === "SENDER"
                         ? { sender: {} }
-                        : input.authorization === "receiver"
+                        : input.authorization === "RECEIVER"
                             ? { receiver: {} }
                             : { both: {} };
 
@@ -287,7 +288,7 @@ export const sendaRouter = router({
                         data: {
                             depositIndex: nextDepositIdx,
                             amount: input.amount,
-                            policy: input.authorization === 'both' ? 'DUAL' : 'SINGLE',
+                            policy: input.authorization as SignatureType,
                             stable: input.stable,
                             signatures: [
                                 JSON.stringify({

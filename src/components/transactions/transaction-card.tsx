@@ -12,7 +12,7 @@ import { useState } from 'react';
 
 export type TransactionStatus = 'PENDING' | 'COMPLETED' | 'CANCELLED' | 'REJECTED' | 'FAILED';
 export type SignatureType = 'SINGLE' | 'DUAL';
-export type AuthorizedBy = 'sender' | 'receiver' | 'both';
+export type AuthorizedBy = 'SENDER' | 'RECEIVER' | 'DUAL';
 
 export interface TransactionCardProps {
   id: string;
@@ -90,11 +90,11 @@ export default function TransactionCard({
 
   const getAuthorizationText = (authorization: AuthorizedBy) => {
     switch (authorization) {
-      case 'sender':
+      case 'SENDER':
         return 'Sender only';
-      case 'receiver':
+      case 'RECEIVER':
         return 'Receiver only';
-      case 'both':
+      case 'DUAL':
         return 'Both parties';
       default:
         return authorization;
@@ -103,9 +103,9 @@ export default function TransactionCard({
 
   const getActionButtonText = () => {
     if (status === 'PENDING') {
-      if (isDepositor && (authorization === 'sender' || authorization === 'both')) {
+      if (isDepositor && (authorization === 'SENDER' || authorization === 'DUAL')) {
         return 'Release Funds';
-      } else if (!isDepositor && (authorization === 'receiver' || authorization === 'both')) {
+      } else if (!isDepositor && (authorization === 'RECEIVER' || authorization === 'DUAL')) {
         return 'Withdraw Funds';
       }
     }

@@ -279,7 +279,8 @@ enum KYCStatus {
 }
 
 enum SignatureType {
-  SINGLE
+  SENDER
+  RECEIVER
   DUAL
 }
 
