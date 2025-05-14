@@ -235,9 +235,7 @@ export const transactionRouter = router({
 
       // Verify token
       const verificationToken = await prisma.verificationToken.findUnique({
-        where: {
-          token,
-        },
+        where: { token }
       });
 
       if (!verificationToken || verificationToken.expires < new Date()) {
@@ -255,11 +253,76 @@ export const transactionRouter = router({
         });
       }
 
-      // At this point, the user has proven they own the email
-      // This would continue with account creation or login flow
+      // Get the metadata containing escrow and deposit information
+      const metadata = verificationToken.metadata ? JSON.parse(verificationToken.metadata as string) : null;
+      if (!metadata?.escrowId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "No escrow information found",
+        });
+      }
+
+      // Find the user by email
+      const user = await prisma.user.findUnique({
+        where: { email },
+        select: {
+          id: true,
+          sendaWalletPublicKey: true,
+        }
+      });
+
+      if (!user) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "User not found",
+        });
+      }
+
+      // Find the escrow
+      const escrow = await prisma.escrow.findUnique({
+        where: { id: metadata.escrowId },
+        select: {
+          id: true,
+          receiverPublicKey: true,
+          state: true,
+        }
+      });
+
+      if (!escrow) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Escrow not found",
+        });
+      }
+
+      if (escrow.state !== "Active") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Escrow is not in an active state",
+        });
+      }
+
+      if (escrow.receiverPublicKey !== user.sendaWalletPublicKey) {
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message: "Escrow does not belong to this user",
+        });
+      }
+
+      // Update escrow state to indicate funds are being claimed
+      await prisma.escrow.update({
+        where: { id: escrow.id },
+        data: { state: "Active" }
+      });
+
+      // Delete the verification token as it's no longer needed
+      await prisma.verificationToken.delete({
+        where: { token }
+      });
       
       return {
         success: true,
+        escrowId: escrow.id,
         email,
       };
     }),

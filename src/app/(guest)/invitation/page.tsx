@@ -4,12 +4,9 @@ import { useEffect, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Toaster } from '@/components/ui/sonner';
 import { Loader2 } from 'lucide-react';
-import { signIn } from 'next-auth/react';
-import { toast, useSonner } from 'sonner';
+import { toast } from 'sonner';
 import { trpc } from '@/app/_trpc/client';
 
 interface VerificationData {
@@ -32,7 +29,6 @@ export default function InvitationPage() {
 
   const [isLoading, setIsLoading] = useState(true);
   const [verificationData, setVerificationData] = useState<VerificationResponse['data']>();
-  const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const verificationQuery = trpc.userRouter.verifyInvitation.useQuery(
@@ -42,6 +38,17 @@ export default function InvitationPage() {
       retry: false
     }
   );
+
+  const claimFundsMutation = trpc.transactionRouter.claimFunds.useMutation({
+    onSuccess: () => {
+      toast.success('Funds claimed successfully!');
+      router.push('/success');
+    },
+    onError: (error) => {
+      toast.error(error.message || 'Failed to claim funds');
+      setIsSubmitting(false);
+    }
+  });
 
   useEffect(() => {
     if (verificationQuery.data?.success && verificationQuery.data.data) {
@@ -63,31 +70,17 @@ export default function InvitationPage() {
     }
   }, [token, router]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!verificationData?.email || !password) return;
+  const handleClaimFunds = async () => {
+    if (!verificationData?.email || !token) return;
 
     setIsSubmitting(true);
     try {
-      const result = await signIn('credentials', {
-        email: verificationData.email,
-        password,
+      await claimFundsMutation.mutateAsync({
         token,
-        callbackUrl: '/home',
-        redirect: false,
+        email: verificationData.email
       });
-
-      if (result?.error) {
-        throw new Error(result.error);
-      }
-
-      toast.success('Welcome to Senda!');
-
-      router.push('/home');
     } catch (error) {
-      toast.error('Failed to create account');
-    } finally {
-      setIsSubmitting(false);
+      // Error is handled by the mutation callbacks
     }
   };
 
@@ -107,55 +100,34 @@ export default function InvitationPage() {
           <CardDescription>
             {verificationData?.amount && verificationData?.token ? (
               <>
-                You have received {verificationData.amount} {verificationData.token}. Create your account to access your funds.
+                You have received {verificationData.amount} {verificationData.token}. Click below to claim your funds.
               </>
             ) : (
-              'Create your account to get started.'
+              'Click below to claim your funds.'
             )}
           </CardDescription>
         </CardHeader>
-        <form onSubmit={handleSubmit}>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                value={verificationData?.email}
-                disabled
-                className="bg-muted"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="password">Create Password</Label>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Enter a secure password"
-                required
-                minLength={8}
-              />
-            </div>
-          </CardContent>
-          <CardFooter>
-            <Button
-              type="submit"
-              className="w-full"
-              disabled={isSubmitting}
-            >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Creating Account...
-                </>
-              ) : (
-                'Create Account & Access Funds'
-              )}
-            </Button>
-          </CardFooter>
-        </form>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-gray-500">
+            Funds will be sent to your wallet associated with {verificationData?.email}.
+          </p>
+        </CardContent>
+        <CardFooter>
+          <Button
+            onClick={handleClaimFunds}
+            className="w-full"
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Claiming Funds...
+              </>
+            ) : (
+              'Claim Funds'
+            )}
+          </Button>
+        </CardFooter>
       </Card>
     </div>
   );
