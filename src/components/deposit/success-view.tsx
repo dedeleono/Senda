@@ -43,8 +43,13 @@ const SuccessView = ({ onClose, transactionData }: SuccessViewProps) => {
   };
   
   const viewExplorer = () => {
-    // Open Solana explorer for the transaction
-    window.open(`https://explorer.solana.com/tx/${transactionId}`, '_blank');
+    if (process.env.NEXT_PUBLIC_SOLANA_NETWORK === 'devnet') {
+      // Open Solana explorer for the transaction
+      window.open(`https://solscan.io/tx/${transactionId}?cluster=devnet`, '_blank');
+    } else {
+      // Open Solana explorer for the transaction
+      window.open(`https://solscan.io/tx/${transactionId}`, '_blank');
+    }
   };
   
   return (

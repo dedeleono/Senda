@@ -77,7 +77,7 @@ const ConfirmationView = ({ onComplete }: ConfirmationViewProps) => {
       }
 
       // Call onComplete with the transaction data
-      onComplete(result.signature, result.depositId);
+      onComplete(result.data.signature, result.data.depositId);
       
       setStep(4); // Move to success step
       toast.success('Deposit created successfully');
