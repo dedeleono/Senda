@@ -4,7 +4,8 @@ import {
     PublicKey,
     SystemProgram,
     SYSVAR_RENT_PUBKEY,
-    Keypair
+    Keypair,
+    Transaction
 } from "@solana/web3.js";
 import {
     AnchorProvider,
@@ -37,10 +38,11 @@ import { DepositAccounts, InitEscrowAccounts, ReleaseResult } from "@/types/send
 import { sendGuestDepositNotificationEmail } from "@/lib/validations/guest-deposit-notification";
 import { sendDepositNotificationEmail } from "@/lib/validations/deposit-notification";
 import { SignatureType } from "@/components/transactions/transaction-card";
+import { createTransferCheckedInstruction } from "@solana/spl-token";
 
 
 export const sendaRouter = router({
-    
+
     getFactoryStats: publicProcedure
         .input(z.object({ owner: z.string().optional() }))
         .query(async ({ input }) => {
@@ -252,13 +254,13 @@ export const sendaRouter = router({
 
                 // Create DB records
                 console.log('Creating database records...');
-                
+
                 const existingEscrow = await prisma.escrow.findUnique({
                     where: {
                         id: escrowData.escrowAddress
                     }
                 });
-                
+
                 const { transaction, deposit } = await prisma.$transaction(async (tx) => {
                     const txn = await tx.transaction.create({
                         data: {
@@ -498,14 +500,14 @@ export const sendaRouter = router({
                     program.programId
                 );
                 const depositRecord = await program.account.depositRecord.fetch(depositRecordPda);
-                
+
                 // Get the correct signer keypair based on authorization policy
                 const isDepositor = receivingPartyPk.equals(depositorPk);
                 let signerKp: Keypair;
 
                 // Check the policy type from the deposit record
                 const policy = depositRecord.policy;
-                
+
                 if (policy.single?.signer.equals(depositorPk)) {
                     if (!isDepositor) throw new Error('Only sender can release these funds');
                     const { keypair } = await loadSignerKeypair(ctx.session!.user.id, depositorPk);
@@ -604,7 +606,7 @@ export const sendaRouter = router({
 
                 // Parse existing signatures
                 const currentSignatures = deposit.signatures.map(sig => JSON.parse(sig));
-                
+
                 // Update or add the signature for the current role
                 const sigIndex = currentSignatures.findIndex(sig => sig.role === input.role);
                 const newSignature = {
@@ -636,7 +638,118 @@ export const sendaRouter = router({
                     error: handleRouterError(error)
                 };
             }
-        })
+        }),
+
+    transferSpl: protectedProcedure
+        .input(
+            z.object({
+                userId: z.string(),
+                destinationAddress: z.string(),
+                stable: z.enum(["usdc", "usdt"]),
+                amount: z.number().positive()
+            })
+        )
+        .mutation(async ({ ctx, input }) => {
+            console.log('Starting transferSpl with input:', {
+                ...input,
+                userId: '[REDACTED]' // Don't log sensitive data
+            });
+
+            try {
+                const usdcMint = new PublicKey(USDC_MINT);
+                const usdtMint = new PublicKey(USDT_MINT);
+                const mintPubkey = input.stable === "usdc" ? usdcMint : usdtMint;
+
+                const user = await prisma.user.findUnique({
+                    where: {
+                        id: input.userId
+                    }
+                });
+
+                if (!user) {
+                    throw new TRPCError({
+                        code: 'NOT_FOUND',
+                        message: 'User not found'
+                    });
+                }
+
+                const { connection, feePayer } = getProvider();
+                const senderPk = new PublicKey(user.sendaWalletPublicKey);
+                const receiverPk = new PublicKey(input.destinationAddress);
+
+                // Create transaction to transfer tokens
+                console.log('Setting up transfer transaction...');
+
+                // Ensure ATAs exist
+                await createAta(mintPubkey, senderPk);
+                await createAta(mintPubkey, receiverPk);
+
+                const senderAta = getAssociatedTokenAddressSync(mintPubkey, senderPk);
+                const receiverAta = getAssociatedTokenAddressSync(mintPubkey, receiverPk);
+
+                // Convert amount to lamports (USDC/USDT use 6 decimals)
+                const lamports = Math.round(input.amount * 1_000_000);
+
+                // Create the transfer transaction using SPL token program directly
+                const tx = new Transaction().add(
+                    createTransferCheckedInstruction(
+                        senderAta,
+                        mintPubkey,
+                        receiverAta,
+                        senderPk,
+                        lamports,
+                        6 // USDC/USDT have 6 decimals
+                    )
+                );
+
+                tx.feePayer = feePayer.publicKey;
+                // Load the sender's keypair
+                console.log('Loading sender keypair...');
+                const { keypair: senderKeypair } = await loadUserSignerKeypair(
+                    ctx.session!.user.id
+                );
+
+                // Send the transaction
+                console.log('Sending transfer transaction...');
+                const signature = await connection.sendTransaction(
+                    tx, 
+                    [senderKeypair, feePayer],
+                    {skipPreflight: false}
+                );
+                
+                await connection.confirmTransaction(signature);
+                console.log('Transfer transaction confirmed:', signature);
+
+                // Create DB record of the transaction
+                const transaction = await prisma.transaction.create({
+                    data: {
+                        userId: ctx.session.user.id,
+                        walletPublicKey: user.sendaWalletPublicKey,
+                        destinationAddress: input.destinationAddress,
+                        amount: input.amount,
+                        status: 'COMPLETED',
+                        type: 'TRANSFER'
+                    }
+                });
+
+                return { 
+                    success: true, 
+                    signature,
+                    transaction: {
+                        id: transaction.id,
+                        status: transaction.status
+                    }
+                };
+
+            } catch (error) {
+                console.error('Error in transferSpl:', error);
+                throw new TRPCError({
+                    code: 'INTERNAL_SERVER_ERROR',
+                    message: error instanceof Error ? error.message : 'Failed to transfer tokens',
+                    cause: error
+                });
+            }
+        }),
 });
 
 export default sendaRouter;

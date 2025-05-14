@@ -7,6 +7,9 @@ import Image from 'next/image';
 import usdcIcon from '@/public/usdc.svg';
 import usdtIcon from '@/public/usdt-round.svg';
 import { Loader2 } from 'lucide-react';
+import { SignatureType } from '@prisma/client';
+import { useAuth } from '@/hooks/use-auth';
+import { useSendaProgram } from '@/stores/use-senda-program';
 
 type ConfirmationViewProps = {
   onComplete: (transactionId: string) => void;
@@ -15,6 +18,8 @@ type ConfirmationViewProps = {
 const ConfirmationView = ({ onComplete }: ConfirmationViewProps) => {
   const { formData, prevStep, nextStep } = useWithdrawForm();
   const [isProcessing, setIsProcessing] = useState(false);
+  const sendaProgram = useSendaProgram();
+  const { session } = useAuth();
 
   const formatCurrency = (value: number) => {
     return value.toLocaleString('en-US', {
@@ -29,7 +34,19 @@ const ConfirmationView = ({ onComplete }: ConfirmationViewProps) => {
       
       // TODO: Implement actual withdrawal logic here
       // This would connect to your backend API to process the withdrawal
+      console.log("withdrawal formData", formData)
+      const result = await sendaProgram.transferSpl({
+        userId: session?.user?.id as string,
+        destinationAddress: formData.walletAddress as string,
+        stable: formData.token.toLowerCase() as 'usdc' | 'usdt',
+        amount: formData.amount
+      });
       
+      // @ts-ignore
+      if (!result.success || !result.data) {
+        throw new Error(result.error || 'Failed to create deposit');
+      }
+
       // Simulate API call with delay
       await new Promise(resolve => setTimeout(resolve, 2000));
       
@@ -38,6 +55,7 @@ const ConfirmationView = ({ onComplete }: ConfirmationViewProps) => {
       
       onComplete(mockTransactionId);
       nextStep();
+
     } catch (error) {
       console.error("Withdrawal failed:", error);
       // Handle error - could show error message here

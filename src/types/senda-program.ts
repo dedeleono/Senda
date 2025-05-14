@@ -1,6 +1,7 @@
 import { Program } from "@coral-xyz/anchor";
 import { SendaDapp } from "@/lib/IDL";
 import { Keypair, PublicKey } from "@solana/web3.js";
+import { SignatureType } from "@prisma/client";
 
 type ProgramType = Program<SendaDapp>;
 const program = null as unknown as ProgramType;
@@ -79,6 +80,13 @@ export interface ReleaseResult {
         signature: string;
     };
     error?: Error;
+}
+
+export interface TransferSplParams {
+    userId: string;
+    destinationAddress: string;
+    stable: Stable;
+    amount: number;
 }
 
 export interface SignatureUpdateParams {

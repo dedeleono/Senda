@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { PublicKey } from '@solana/web3.js';
 import { TransactionResult } from '@/lib/utils/solana-transaction';
-import { FactoryStats, EscrowStats, InitEscrowParams, CancelParams, ReleaseParams } from '@/types/senda-program';
+import { FactoryStats, EscrowStats, InitEscrowParams, CancelParams, ReleaseParams, TransferSplParams } from '@/types/senda-program';
 import { persist } from 'zustand/middleware';
 import { prisma } from '@/lib/db';
 import { CreateDepositResponse } from '@/types/transaction';
@@ -33,6 +33,12 @@ interface DepositInput {
   amount: number;
 }
 
+interface TransferSplResponse {
+  success: boolean;
+  signature?: string;
+  error?: string;
+}
+
 export interface SendaStore {
   stats: FactoryStats | null;
   state: SendaProgramState;
@@ -48,6 +54,7 @@ export interface SendaStore {
   cancelDeposit: (params: CancelParams) => Promise<TransactionResult>;
   requestWithdrawal: (params: ReleaseParams) => Promise<TransactionResult>;
   updateDepositSignature: (params: { depositId: string; role: 'sender' | 'receiver'; signer: string }) => Promise<{ success: boolean; error?: any }>;
+  transferSpl: (params: TransferSplParams) => Promise<TransferSplResponse>;
   
   // Database sync operations
   syncEscrowToDb: (escrowAddress: string, senderPk: string, receiverPk: string) => Promise<EscrowData>;
@@ -206,6 +213,33 @@ export const useSendaProgram = create<SendaStore>()(
         } catch (error) {
           console.error('Error getting escrow from DB:', error);
           return null;
+        }
+      },
+
+      transferSpl: async (params: TransferSplParams): Promise<TransferSplResponse> => {
+        try {
+          set({ state: { ...get().state, isProcessing: true } });
+
+          const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL!}/api/trpc/sendaRouter.transferSpl`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(params)
+          });
+
+          const result = await response.json();
+          set({ 
+            state: {  
+              ...get().state, 
+              isProcessing: false,
+              transactionCount: get().state.transactionCount + 1 
+            }
+          });
+
+          return { success: true, signature: result.data.signature };
+        } catch (error) {
+          const typedError = error instanceof Error ? error : new Error(String(error));
+          set({ state: { ...get().state, isProcessing: false, lastError: typedError } });
+          return { success: false, error: typedError.message };
         }
       },
 
