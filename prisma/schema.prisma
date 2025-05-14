@@ -187,9 +187,9 @@ model EscrowLog {
   @@index([depositRecordId])
 }
 
-model DepositRecord {
+model DepositRecord {cd3
   id String @id @default(uuid()) @unique
-  depositIndex Float @unique
+  depositIndex Int
   amount Float
   policy SignatureType
   stable String
