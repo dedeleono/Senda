@@ -40,7 +40,7 @@ const createDepositSchema = z.object({
   recipientEmail: z.string().email(),
   amount: z.number().positive(),
   token: z.enum(["USDC", "USDT"]) as z.ZodType<TokenType>,
-  authorization: z.enum(["sender", "receiver", "both"]) as z.ZodType<AuthorizationType>,
+  authorization: z.enum(["SENDER", "RECEIVER", "DUAL"]) as z.ZodType<AuthorizationType>,
 });
 
 const createInvitationSchema = z.object({
@@ -150,6 +150,7 @@ export const transactionRouter = router({
         },
         include: {
           depositRecord: true,
+          destinationUser: true,
         },
       });
 

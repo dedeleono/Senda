@@ -261,6 +261,7 @@ export const sendaRouter = router({
                             amount: input.amount,
                             status: 'PENDING',
                             type: 'TRANSFER',
+                            destinationUserId: receiver.id
                         },
                         select: {
                             id: true,

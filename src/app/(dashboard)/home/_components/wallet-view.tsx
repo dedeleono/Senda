@@ -16,7 +16,7 @@ import { useWalletBalances } from '@/hooks/use-wallet-balances'
 import usdcIcon from '@/public/usdc.svg'
 import usdtIcon from '@/public/usdt-round.svg'
 import DepositModal, { DepositModalRef } from '@/components/deposit/deposit-modal'
-import TransactionCard, { TransactionStatus, AuthorizedBy } from '@/components/transactions/transaction-card'
+import TransactionCard, { TransactionStatus, AuthorizedBy, SignatureType } from '@/components/transactions/transaction-card'
 import TransactionDetails from '@/components/transactions/transaction-details'
 import { Badge } from '@/components/ui/badge'
 import { useWalletStore } from '@/stores/use-wallet-store'
@@ -308,10 +308,10 @@ export default function SendaWallet() {
                         id={transaction.id}
                         amount={transaction.amount}
                         token={transaction.depositRecord?.stable === 'usdc' ? 'USDC' : 'USDT'}
-                        recipientEmail="recipient@example.com"
+                        recipientEmail={transaction.destinationUserId ? transaction.destinationUser?.email : 'recipient@example.com'}
                         createdAt={new Date(transaction.createdAt)}
                         status={transaction.status}
-                        authorization={transaction.depositRecord?.policy === 'DUAL' ? 'both' : 'sender'}
+                        authorization={transaction.depositRecord?.policy as SignatureType}
                         isDepositor={true}
                         onClick={() => handleOpenTransactionDetails(transaction)}
                       />
@@ -350,7 +350,7 @@ export default function SendaWallet() {
                         recipientEmail="recipient@example.com"
                         createdAt={new Date(transaction.createdAt)}
                         status={transaction.status}
-                        authorization={transaction.depositRecord?.policy === 'DUAL' ? 'both' : 'sender'}
+                        authorization={transaction.depositRecord?.policy as SignatureType}
                         isDepositor={true}
                         onClick={() => handleOpenTransactionDetails(transaction)}
                       />

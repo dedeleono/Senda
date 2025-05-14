@@ -9,15 +9,15 @@ datasource db {
 }
 
 model User {
-  id                  String        @id @default(uuid())
-  email               String?       @unique
+  id                  String    @id @default(uuid())
+  email               String?   @unique
   name                String?
   emailVerified       DateTime?
   image               String?
-  onboardingCompleted Boolean       @default(false)
-  termsAccepted       Boolean       @default(false)
-  legalDeclaration    Boolean       @default(false)
-  role                UserRole      @default(INDIVIDUAL)
+  onboardingCompleted Boolean   @default(false)
+  termsAccepted       Boolean   @default(false)
+  legalDeclaration    Boolean   @default(false)
+  role                UserRole  @default(INDIVIDUAL)
   firstname           String?
   lastname            String?
   phoneNumber         String?
@@ -25,28 +25,29 @@ model User {
   legalIdType         String?
   country             String?
 
-// Senda-specific fields
-  sendaWalletPublicKey String     @unique
+  // Senda-specific fields
+  sendaWalletPublicKey String         @unique
   encryptedPrivateKey  String
   iv                   String
   authTag              String
   linkedWallets        LinkedWallet[]
 
-  fiatFundingTransactions      FiatFunding[]
-  onChainTransactions          Transaction[]
-  deposits DepositRecord[]
-  transactionHistory           TransactionHistory[]
+  fiatFundingTransactions FiatFunding[]
+  onChainTransactions     Transaction[]
+  deposits                DepositRecord[]
+  transactionHistory      TransactionHistory[]
 
-  isTwoFactorEnabled    Boolean       @default(false)
+  isTwoFactorEnabled    Boolean                @default(false)
   twoFactorConfirmation TwoFactorConfirmation?
   twoFactorSecret       TwoFactorSecret?
-  createdAt           DateTime      @default(now())
-  updatedAt           DateTime      @updatedAt
-  kyc                 UserKYC?
-  accounts            Account[]
-  sessions            Session[]
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  kyc                   UserKYC?
+  accounts              Account[]
+  sessions              Session[]
+  receivingTransactions Transaction[] @relation("DestinationTransactions")
 
-  senderEscrows Escrow[] @relation("SenderEscrows")
+  senderEscrows   Escrow[] @relation("SenderEscrows")
   receiverEscrows Escrow[] @relation("ReceiverEscrows")
 
   @@index([role])
@@ -84,23 +85,24 @@ model VerificationToken {
   token      String   @unique
   expires    DateTime
   metadata   Json?
+
   @@unique([identifier, token])
 }
 
 model TwoFactorToken {
-  id String @id @default(uuid())
-  email      String
-  token      String   @unique
-  expires    DateTime
+  id      String   @id @default(uuid())
+  email   String
+  token   String   @unique
+  expires DateTime
 
   @@unique([email, token])
 }
 
 model TwoFactorConfirmation {
   id String @id @default(uuid())
-  
+
   userId String
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId])
 }
@@ -110,41 +112,44 @@ model TwoFactorSecret {
   userId String @unique
   secret String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
 model LinkedWallet {
-  id String @id @default(uuid())
+  id        String  @id @default(uuid())
   publicKey String  @unique
   isPrimary Boolean @default(false)
-  provider String?  // Store wallet provider name (Phantom, Solflare, etc.)
+  provider  String? // Store wallet provider name (Phantom, Solflare, etc.)
 
   userId String
-  user User @relation(fields: [userId], references: [id])
+  user   User   @relation(fields: [userId], references: [id])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
 model Transaction {
-  id String @id @default(uuid())
-  walletPublicKey  String
+  id                 String  @id @default(uuid())
+  walletPublicKey    String
   destinationAddress String?
-  
-  userId String
-  user User @relation(fields: [userId], references: [id])
 
-  amount Float
-  status TransactionStatus
-  type TransactionType
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  destinationUserId String?
+  destinationUser   User?   @relation("DestinationTransactions", fields: [destinationUserId], references: [id])
+
+  amount        Float
+  status        TransactionStatus
+  type          TransactionType
   depositRecord DepositRecord?
-  
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
   completedAt DateTime?
-  
+
   history TransactionHistory[]
 
   @@index([userId])
@@ -153,20 +158,20 @@ model Transaction {
 }
 
 model FiatFunding {
-  id         String   @id @default(uuid())
-  publicKey  String   
-  method     String   
-  chain      String   
-  asset      String   
-  amount     Float
+  id        String @id @default(uuid())
+  publicKey String
+  method    String
+  chain     String
+  asset     String
+  amount    Float
 
-  userId     String
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  timestamp  DateTime @default(now())
+  timestamp DateTime @default(now())
 
   @@index([userId])
   @@index([publicKey])
@@ -174,39 +179,39 @@ model FiatFunding {
 }
 
 model EscrowLog {
-  id         String   @id @default(cuid())
-  escrow     String   @unique
-  action     String   // "deposit", "requestWithdrawal", "approve", "cancel"
-  actor      String   // publicKey
-  amount     Float?
-  timestamp  DateTime @default(now())
+  id        String   @id @default(cuid())
+  escrow    String   @unique
+  action    String // "deposit", "requestWithdrawal", "approve", "cancel"
+  actor     String // publicKey
+  amount    Float?
+  timestamp DateTime @default(now())
 
-  depositRecordId String? @unique
-  depositRecord DepositRecord? @relation(fields: [depositRecordId], references: [id], onDelete: Cascade)
+  depositRecordId String?        @unique
+  depositRecord   DepositRecord? @relation(fields: [depositRecordId], references: [id], onDelete: Cascade)
 
   @@index([depositRecordId])
 }
 
-model DepositRecord {cd3
-  id String @id @default(uuid()) @unique
+model DepositRecord {
+  id           String        @id @unique @default(uuid())
   depositIndex Int
-  amount Float
-  policy SignatureType
-  stable String
-  signatures String[]
-  state String
-  userId String
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  
-  transactionId String @unique
-  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
-  
+  amount       Float
+  policy       SignatureType
+  stable       String
+  signatures   String[]
+  state        String
+  userId       String
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  transactionId String      @unique
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
   escrowLog EscrowLog?
 
   escrowId String?
-  escrow Escrow? @relation(fields: [escrowId], references: [id])
+  escrow   Escrow? @relation(fields: [escrowId], references: [id])
 
   @@index([userId])
   @@index([transactionId])
@@ -215,14 +220,14 @@ model DepositRecord {cd3
 }
 
 model TransactionHistory {
-  id String @id @default(uuid())
+  id            String            @id @default(uuid())
   transactionId String
-  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
-  status TransactionStatus
-  message String?
-  userId String
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt DateTime @default(now())
+  transaction   Transaction       @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  status        TransactionStatus
+  message       String?
+  userId        String
+  user          User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt     DateTime          @default(now())
 
   @@index([transactionId])
   @@index([userId])
@@ -234,7 +239,7 @@ model AuthNonce {
   publicKey String
   nonce     String
   expires   DateTime
-  
+
   @@index([publicKey])
   @@index([nonce])
   @@index([publicKey, nonce])
@@ -245,7 +250,7 @@ model UserKYC {
   id                    String    @id @default(uuid())
   userId                String    @unique
   status                KYCStatus
-  verificationReference String?  
+  verificationReference String?
   verificationUrl       String?
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
@@ -290,23 +295,23 @@ enum UserRole {
 }
 
 model Escrow {
-  id String @id @unique
-  senderPublicKey String
+  id                String @id @unique
+  senderPublicKey   String
   receiverPublicKey String
-  depositedUsdc Float
-  depositedUsdt Float
-  depositCount Float
-  state String // "Active" | "Closed"
-  
+  depositedUsdc     Float
+  depositedUsdt     Float
+  depositCount      Float
+  state             String // "Active" | "Closed"
+
   // Relations
   deposits DepositRecord[]
-  sender User @relation("SenderEscrows", fields: [senderPublicKey], references: [sendaWalletPublicKey])
-  receiver User @relation("ReceiverEscrows", fields: [receiverPublicKey], references: [sendaWalletPublicKey])
-  
+  sender   User            @relation("SenderEscrows", fields: [senderPublicKey], references: [sendaWalletPublicKey])
+  receiver User            @relation("ReceiverEscrows", fields: [receiverPublicKey], references: [sendaWalletPublicKey])
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([senderPublicKey, receiverPublicKey])
   @@index([senderPublicKey])
   @@index([receiverPublicKey])
-  @@unique([senderPublicKey, receiverPublicKey])
 }
