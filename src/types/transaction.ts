@@ -1,6 +1,7 @@
-export type TransactionStatus = 'PENDING' | 'COMPLETED' | 'CANCELLED' | 'REJECTED' | 'FAILED';
+export type TransactionStatus = 'PENDING' | 'COMPLETED' | 'FAILED' | 'CANCELLED' | 'REJECTED';
 export type TokenType = 'USDC' | 'USDT';
 export type AuthorizationType = 'sender' | 'receiver' | 'both';
+export type AuthorizedBy = 'sender' | 'receiver' | 'both';
 
 export interface RecipientInfo {
   email: string;
@@ -130,4 +131,31 @@ export interface DepositFormActions {
   resetForm: () => void;
   setSubmitting: (isSubmitting: boolean) => void;
   setError: (error?: string) => void;
+}
+
+export interface TransactionDetailsData {
+  id: string;  // escrowId
+  amount: number;
+  token: 'USDC' | 'USDT';
+  recipientEmail: string;
+  senderEmail?: string;
+  createdAt: Date;
+  status: TransactionStatus;
+  authorization: AuthorizedBy;
+  isDepositor: boolean;
+  signatures: Array<{
+    signer: string;
+    role: 'sender' | 'receiver';
+    timestamp?: Date;
+    status: 'signed' | 'pending';
+  }>;
+  statusHistory: Array<{
+    status: string;
+    timestamp: Date;
+    actor?: string;
+  }>;
+  depositIndex: number;
+  transactionSignature?: string;
+  senderPublicKey: string;
+  receiverPublicKey: string;
 } 

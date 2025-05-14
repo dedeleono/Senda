@@ -16,11 +16,37 @@ import { useWalletBalances } from '@/hooks/use-wallet-balances'
 import usdcIcon from '@/public/usdc.svg'
 import usdtIcon from '@/public/usdt-round.svg'
 import DepositModal, { DepositModalRef } from '@/components/deposit/deposit-modal'
-import TransactionCard from '@/components/transactions/transaction-card'
+import TransactionCard, { TransactionStatus, AuthorizedBy } from '@/components/transactions/transaction-card'
 import TransactionDetails from '@/components/transactions/transaction-details'
 import { Badge } from '@/components/ui/badge'
 import { useWalletStore } from '@/stores/use-wallet-store'
 import WithdrawModal, { WithdrawModalRef } from '@/components/withdraw/withdraw-modal'
+
+interface TransactionDetailsData {
+  id: string;
+  amount: number;
+  token: 'USDC' | 'USDT';
+  recipientEmail: string;
+  createdAt: Date;
+  status: TransactionStatus;
+  authorization: AuthorizedBy;
+  isDepositor: boolean;
+  signatures: Array<{
+    signer: string;
+    role: 'sender' | 'receiver';
+    timestamp?: Date;
+    status: 'signed' | 'pending';
+  }>;
+  statusHistory: Array<{
+    status: string;
+    timestamp: Date;
+    actor?: string;
+  }>;
+  depositIndex: number;
+  transactionSignature?: string;
+  senderPublicKey: string;
+  receiverPublicKey: string;
+}
 
 export default function SendaWallet() {
   const { isAuthenticated, session } = useAuth()
@@ -33,7 +59,7 @@ export default function SendaWallet() {
   
   const { error, balances } = useWalletBalances()
   
-  const [selectedTransaction, setSelectedTransaction] = useState<any>(null)
+  const [selectedTransaction, setSelectedTransaction] = useState<TransactionDetailsData | null>(null)
   const [isTransactionDetailsOpen, setIsTransactionDetailsOpen] = useState(false)
 
   const { data: transactions, isLoading: isLoadingTransactions } = trpc.transactionRouter.getUserTransactions.useQuery(
@@ -82,9 +108,66 @@ export default function SendaWallet() {
   }
 
   const handleOpenTransactionDetails = (transaction: any) => {
-    setSelectedTransaction(transaction)
-    setIsTransactionDetailsOpen(true)
-  }
+    console.log('Raw transaction data:', transaction);
+
+    // Ensure depositIndex is properly extracted and validated
+    const depositIndex = transaction.depositRecord?.depositIndex;
+    if (typeof depositIndex !== 'number') {
+      console.error('Invalid deposit index:', depositIndex);
+      return;
+    }
+
+    // Ensure we have both public keys
+    const senderPublicKey = transaction.walletPublicKey;
+    const receiverPublicKey = transaction.destinationAddress;
+    
+    if (!senderPublicKey || !receiverPublicKey) {
+      console.error('Missing required public keys:', { senderPublicKey, receiverPublicKey });
+      return;
+    }
+
+    // Ensure we have a valid escrow ID
+    const escrowId = transaction.depositRecord?.escrowId;
+    if (!escrowId) {
+      console.error('Missing escrow ID');
+      return;
+    }
+
+    // Construct the complete transaction object with all required fields
+    const transactionDetails = {
+      id: escrowId, // Use escrowId instead of transaction.id
+      amount: transaction.amount,
+      token: transaction.depositRecord?.stable === 'usdc' ? 'USDC' : 'USDT',
+      recipientEmail: transaction.recipientEmail || 'recipient@example.com',
+      createdAt: new Date(transaction.createdAt),
+      status: transaction.status,
+      authorization: transaction.depositRecord?.policy === 'DUAL' ? 'both' : 'sender',
+      isDepositor: true,
+      signatures: transaction.depositRecord?.signatures?.map((sig: string) => {
+        try {
+          return JSON.parse(sig);
+        } catch (e) {
+          console.error('Error parsing signature:', e);
+          return null;
+        }
+      }).filter(Boolean) || [],
+      statusHistory: [
+        {
+          status: transaction.status,
+          timestamp: new Date(transaction.createdAt),
+          actor: transaction.userId
+        }
+      ],
+      depositIndex,
+      transactionSignature: transaction.signature,
+      senderPublicKey,
+      receiverPublicKey
+    };
+
+    console.log('Constructed transaction details:', transactionDetails);
+    setSelectedTransaction(transactionDetails as TransactionDetailsData);
+    setIsTransactionDetailsOpen(true);
+  };
 
   if (error) {
     return (
@@ -395,26 +478,7 @@ export default function SendaWallet() {
         <TransactionDetails
           isOpen={isTransactionDetailsOpen}
           onClose={() => setIsTransactionDetailsOpen(false)}
-          transaction={{
-            id: selectedTransaction.id,
-            amount: selectedTransaction.amount,
-            token: selectedTransaction.depositRecord?.stable === 'usdc' ? 'USDC' : 'USDT',
-            recipientEmail: 'recipient@example.com',
-            createdAt: new Date(selectedTransaction.createdAt),
-            status: selectedTransaction.status,
-            authorization: selectedTransaction.depositRecord?.policy === 'DUAL' ? 'both' : 'sender',
-            isDepositor: true,
-            signatures: [],
-            statusHistory: [
-              {
-                status: 'CREATED',
-                timestamp: new Date(selectedTransaction.createdAt),
-                actor: 'You',
-              },
-            ],
-            depositIndex: selectedTransaction.depositRecord?.depositIndex || 0,
-            transactionSignature: undefined,
-          }}
+          transaction={selectedTransaction}
         />
       )}
     </div>

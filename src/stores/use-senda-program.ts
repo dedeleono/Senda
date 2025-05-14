@@ -46,6 +46,7 @@ export interface SendaStore {
   createDeposit: (params: DepositInput) => Promise<CreateDepositResponse>;
   cancelDeposit: (params: CancelParams) => Promise<TransactionResult>;
   requestWithdrawal: (params: ReleaseParams) => Promise<TransactionResult>;
+  updateDepositSignature: (params: { depositId: string; role: 'sender' | 'receiver'; signer: string }) => Promise<{ success: boolean; error?: any }>;
   
   // Database sync operations
   syncEscrowToDb: (escrowAddress: string, senderPk: string, receiverPk: string) => Promise<EscrowData>;
@@ -263,15 +264,32 @@ export const useSendaProgram = create<SendaStore>()(
 
       requestWithdrawal: async (params: ReleaseParams): Promise<TransactionResult> => {
         try {
+          console.log('Initiating withdrawal request with params:', params);
           set({ state: { ...get().state, isProcessing: true } });
           
           const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/trpc/sendaRouter.requestWithdrawal`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(params)
+            body: JSON.stringify({
+              json: params
+            })
           });
+
+          console.log('Raw response status:', response.status);
+          const responseData = await response.json();
+          console.log('Response data:', responseData);
           
-          const result = await response.json();
+          if (!response.ok) {
+            throw new Error(responseData.error?.message || 'Failed to process withdrawal request');
+          }
+
+          const signature = responseData.result?.data?.signature;
+          console.log('Extracted signature:', signature);
+          
+          if (!signature) {
+            throw new Error('No signature returned from withdrawal request');
+          }
+          
           set({ 
             state: { 
               ...get().state, 
@@ -280,8 +298,9 @@ export const useSendaProgram = create<SendaStore>()(
             }
           });
           
-          return { success: true, signature: result.data.signature };
+          return { success: true, signature };
         } catch (error) {
+          console.error('Withdrawal request failed:', error);
           const typedError = error instanceof Error ? error : new Error(String(error));
           set({ state: { ...get().state, isProcessing: false, lastError: typedError } });
           return { success: false, error: typedError };
@@ -307,6 +326,35 @@ export const useSendaProgram = create<SendaStore>()(
         } catch (error) {
           console.error('Error getting escrow stats:', error);
           return null;
+        }
+      },
+
+      updateDepositSignature: async (params: { depositId: string; role: 'sender' | 'receiver'; signer: string }) => {
+        try {
+          set({ state: { ...get().state, isProcessing: true } });
+          
+          const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/trpc/sendaRouter.updateDepositSignature`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(params)
+          });
+          
+          const result = await response.json();
+          
+          set({ 
+            state: { 
+              ...get().state, 
+              isProcessing: false,
+              transactionCount: get().state.transactionCount + 1 
+            }
+          });
+          
+          return { success: true, data: result.data };
+        } catch (error) {
+          console.error('Error updating deposit signature:', error);
+          const typedError = error instanceof Error ? error : new Error(String(error));
+          set({ state: { ...get().state, isProcessing: false, lastError: typedError } });
+          return { success: false, error: typedError };
         }
       }
     }),

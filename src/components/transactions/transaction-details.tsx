@@ -16,6 +16,7 @@ import {
 import { format } from 'date-fns';
 import { TransactionStatus, AuthorizedBy } from './transaction-card';
 import { useToast } from '@/hooks/use-toast';
+import { useSendaProgram } from '@/stores/use-senda-program';
 
 interface TransactionDetailsProps {
   isOpen: boolean;
@@ -41,8 +42,10 @@ interface TransactionDetailsProps {
       timestamp: Date;
       actor?: string;
     }>;
-    depositIndex?: number;
+    depositIndex: number;
     transactionSignature?: string;
+    senderPublicKey: string;
+    receiverPublicKey: string;
   };
 }
 
@@ -53,30 +56,148 @@ export default function TransactionDetails({
 }: TransactionDetailsProps) {
   const [isProcessing, setIsProcessing] = useState(false);
   const { toast } = useToast();
+  const { requestWithdrawal, updateDepositSignature } = useSendaProgram();
 
   const handleActionClick = async () => {
     if (isProcessing) return;
     
     setIsProcessing(true);
+    console.log('Starting transaction action with data:', {
+      status: transaction.status,
+      authorization: transaction.authorization,
+      isDepositor: transaction.isDepositor,
+      depositIndex: transaction.depositIndex,
+      signatures: transaction.signatures
+    });
     
     try {
-      //@todo implement actual release/cancel business logic along with program actions
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      const { status, authorization, isDepositor, depositIndex } = transaction;
       
-      toast({
-        title: "Success!",
-        description: `Transaction ${getActionButtonText().toLowerCase()} successfully.`,
-      });
+      // Check if depositIndex is undefined or null, but allow 0
+      if (typeof depositIndex !== 'number') {
+        throw new Error('Invalid deposit index');
+      }
       
-      onClose();
+      if (status === 'PENDING') {
+        // Handle different authorization scenarios
+        if (authorization === 'receiver' && !isDepositor) {
+          // Receiver-only authorization - can release immediately
+          await handleReleaseFunds(depositIndex);
+        } else if (authorization === 'sender' && isDepositor) {
+          // Sender-only authorization - can release immediately
+          await handleReleaseFunds(depositIndex);
+        } else if (authorization === 'both') {
+          // Dual signature required - need to check existing signatures
+          const currentSignatures = transaction.signatures.map(sig => {
+            try {
+              return typeof sig === 'string' ? JSON.parse(sig) : sig;
+            } catch (e) {
+              console.error('Error parsing signature:', e);
+              return null;
+            }
+          }).filter(Boolean);
+
+          const senderSigned = currentSignatures.some(sig => 
+            sig.role === 'sender' && sig.status === 'signed'
+          );
+          const receiverSigned = currentSignatures.some(sig => 
+            sig.role === 'receiver' && sig.status === 'signed'
+          );
+
+          if ((isDepositor && !senderSigned) || (!isDepositor && !receiverSigned)) {
+            // Current user hasn't signed yet - add their signature
+            const role = isDepositor ? 'sender' : 'receiver';
+            const signer = currentSignatures.find(sig => sig.role === role)?.signer;
+            
+            if (!signer) {
+              throw new Error('Signer information not found');
+            }
+
+            const result = await updateDepositSignature({
+              depositId: transaction.id,
+              role,
+              signer
+            });
+
+            if (!result.success) {
+              throw result.error || new Error('Failed to update signature');
+            }
+
+            toast({
+              title: 'Signature Added',
+              description: 'Your signature has been recorded. Waiting for counterparty signature.',
+            });
+            onClose();
+            return;
+          }
+
+          if (senderSigned && receiverSigned) {
+            // Both parties have signed - can release funds
+            await handleReleaseFunds(depositIndex);
+          } else {
+            toast({
+              title: 'Waiting for Signatures',
+              description: 'Both parties must sign before funds can be released.',
+            });
+            onClose();
+            return;
+          }
+        }
+      }
     } catch (error) {
+      console.error('Transaction action failed:', error);
       toast({
-        title: "Error",
-        description: "Failed to process your request. Please try again.",
-        variant: "destructive",
+        variant: 'destructive',
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'Failed to process transaction',
       });
     } finally {
       setIsProcessing(false);
+    }
+  };
+
+  const handleReleaseFunds = async (depositIdx: number) => {
+    try {
+      // Validate required fields
+      if (!transaction.id || !transaction.senderPublicKey || !transaction.receiverPublicKey) {
+        throw new Error('Missing required transaction information');
+      }
+
+      // Determine receiving party public key based on who is releasing
+      const receivingPartyPublicKey = transaction.isDepositor 
+        ? transaction.receiverPublicKey  // If depositor is releasing, funds go to receiver
+        : transaction.senderPublicKey;   // If receiver is releasing, funds go to sender
+
+      const result = await requestWithdrawal({
+        escrowPublicKey: transaction.id,
+        depositIndex: depositIdx,
+        receivingPartyPublicKey
+      });
+
+      if (!result.success) {
+        throw result.error || new Error('Failed to process withdrawal');
+      }
+
+      // Update local state with the transaction signature
+      await updateDepositSignature({
+        depositId: transaction.id,
+        role: transaction.isDepositor ? 'sender' : 'receiver',
+        signer: transaction.isDepositor ? transaction.senderPublicKey : transaction.receiverPublicKey
+      });
+
+      toast({
+        title: 'Success',
+        description: 'Funds have been released successfully',
+      });
+
+      onClose();
+    } catch (error) {
+      console.error('Error releasing funds:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'Failed to release funds',
+      });
     }
   };
 

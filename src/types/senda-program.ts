@@ -69,11 +69,22 @@ export interface CancelParams {
 
 export interface ReleaseParams {
     escrowPublicKey: string;
-    originalDepositorPublicKey: string;
-    counterpartyPublicKey: string;
+    depositIndex: number;
     receivingPartyPublicKey: string;
-    authorizedSignerPublicKey: string;
-    depositIdx: number;
+}
+
+export interface ReleaseResult {
+    success: boolean;
+    data?: {
+        signature: string;
+    };
+    error?: Error;
+}
+
+export interface SignatureUpdateParams {
+    depositId: string;
+    role: 'sender' | 'receiver';
+    signature: string;
 }
 
 export type FactoryStats = {
