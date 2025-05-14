@@ -4,7 +4,7 @@ import { useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { ArrowUp, PlusIcon, Wallet } from 'lucide-react'
+import { ArrowUp, PlusIcon, Wallet, ArrowDown } from 'lucide-react'
 import { useAuth } from '@/hooks/use-auth'
 import { trpc } from '@/app/_trpc/client'
 import path from '@/public/2.svg'
@@ -20,11 +20,13 @@ import TransactionCard from '@/components/transactions/transaction-card'
 import TransactionDetails from '@/components/transactions/transaction-details'
 import { Badge } from '@/components/ui/badge'
 import { useWalletStore } from '@/stores/use-wallet-store'
+import WithdrawModal, { WithdrawModalRef } from '@/components/withdraw/withdraw-modal'
 
 export default function SendaWallet() {
   const { isAuthenticated, session } = useAuth()
   const walletQRDialogRef = useRef<WalletQRDialogRef>(null)
   const depositModalRef = useRef<DepositModalRef>(null)
+  const withdrawModalRef = useRef<WithdrawModalRef>(null)
 
   const { publicKey } = useWalletStore()
   const sendaWalletAddress = publicKey?.toString() || null
@@ -57,6 +59,10 @@ export default function SendaWallet() {
 
   const handleOpenDepositModal = () => {
     depositModalRef.current?.open()
+  }
+
+  const handleOpenWithdrawModal = () => {
+    withdrawModalRef.current?.open()
   }
 
   const handleDepositComplete = (transactionId: string, depositId: string, recipientRole?: string) => {
@@ -135,7 +141,7 @@ export default function SendaWallet() {
             </div>
           </div>
 
-          <div className="md:mt-3 mt-7 grid md:grid-cols-3 grid-cols-1 md:gap-2 gap-3 md:w-5/6">
+          <div className="md:mt-3 mt-7 grid md:grid-cols-4 grid-cols-1 md:gap-2 gap-3 md:w-5/6">
             <Button
               onClick={handleOpenDepositModal}
               variant="default"
@@ -159,14 +165,22 @@ export default function SendaWallet() {
             <Button
               variant="ghost"
               className="border border-[#d7dfbe] text-black font-semibold hover:!bg-transparent hover:!scale-103 hover:!text-black hover:!border-[#d7dfbe] transition-all duration-300 cursor-pointer md:h-auto h-12"
+              onClick={handleOpenWithdrawModal}
+            >
+              Withdraw <ArrowDown className="h-4 w-4" />
+            </Button>
+
+            <Button
+              variant="ghost"
+              className="border border-[#d7dfbe] text-black font-semibold hover:!bg-transparent hover:!scale-103 hover:!text-black hover:!border-[#d7dfbe] transition-all duration-300 cursor-pointer md:h-auto h-12"
               onClick={handleOpenWalletQR}
             >
               Your Senda Wallet <Wallet className="h-4 w-4" />
             </Button>
 
             <WalletQRDialog ref={walletQRDialogRef} walletAddress={sendaWalletAddress || ''} />
-
             <DepositModal ref={depositModalRef} onComplete={handleDepositComplete} />
+            <WithdrawModal ref={withdrawModalRef} />
           </div>
         </Card>
 
