@@ -11,7 +11,7 @@ import usdtIcon from '@/public/usdt-round.svg';
 import { useState } from 'react';
 
 export type TransactionStatus = 'PENDING' | 'COMPLETED' | 'CANCELLED' | 'REJECTED' | 'FAILED';
-export type SignatureType = 'SINGLE' | 'DUAL';
+export type SignatureType = 'SENDER' | 'RECEIVER' | 'DUAL';
 export type AuthorizedBy = 'SENDER' | 'RECEIVER' | 'DUAL';
 
 export interface TransactionCardProps {

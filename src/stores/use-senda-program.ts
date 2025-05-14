@@ -5,6 +5,7 @@ import { FactoryStats, EscrowStats, InitEscrowParams, CancelParams, ReleaseParam
 import { persist } from 'zustand/middleware';
 import { prisma } from '@/lib/db';
 import { CreateDepositResponse } from '@/types/transaction';
+import { SignatureType } from '@/components/transactions/transaction-card';
 
 interface SendaProgramState {
   isProcessing: boolean;
@@ -175,7 +176,7 @@ export const useSendaProgram = create<SendaStore>()(
             data: {
               depositIndex: Math.floor(Math.random() * 1000000), // TODO: Get actual index from chain
               amount: params.amount,
-              policy: params.authorization === 'both' ? 'DUAL' : 'SINGLE',
+              policy: params.authorization as SignatureType,
               stable: params.stable,
               signatures: [params.signature],
               state: 'PENDING',

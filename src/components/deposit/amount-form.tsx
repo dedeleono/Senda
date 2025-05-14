@@ -143,24 +143,24 @@ const AmountForm = () => {
           value={formData.authorization} 
           onValueChange={(value) => handleAuthorizationChange(value as AuthorizationType)}
         >
-          <div className={`border rounded-md p-3 cursor-pointer ${formData.authorization === 'sender' ? 'border-primary bg-primary/5' : 'border-gray-200'}`}>
-            <RadioGroupItem value="sender" id="sender" className="sr-only" />
+          <div className={`border rounded-md p-3 cursor-pointer ${formData.authorization === 'SENDER' ? 'border-primary bg-primary/5' : 'border-gray-200'}`}>
+            <RadioGroupItem value="SENDER" id="sender" className="sr-only" />
             <Label htmlFor="sender" className="flex flex-col cursor-pointer">
               <span className="font-medium">Sender Only</span>
               <span className="text-xs text-gray-500">Only you can authorize the transaction</span>
             </Label>
           </div>
           
-          <div className={`border rounded-md p-3 cursor-pointer ${formData.authorization === 'receiver' ? 'border-primary bg-primary/5' : 'border-gray-200'}`}>
-            <RadioGroupItem value="receiver" id="receiver" className="sr-only" />
+          <div className={`border rounded-md p-3 cursor-pointer ${formData.authorization === 'RECEIVER' ? 'border-primary bg-primary/5' : 'border-gray-200'}`}>
+            <RadioGroupItem value="RECEIVER" id="receiver" className="sr-only" />
             <Label htmlFor="receiver" className="flex flex-col cursor-pointer">
               <span className="font-medium">Recipient Only</span>
               <span className="text-xs text-gray-500">Only the recipient can authorize the transaction</span>
             </Label>
           </div>
           
-          <div className={`border rounded-md p-3 cursor-pointer ${formData.authorization === 'both' ? 'border-primary bg-primary/5' : 'border-gray-200'}`}>
-            <RadioGroupItem value="both" id="both" className="sr-only" />
+          <div className={`border rounded-md p-3 cursor-pointer ${formData.authorization === 'DUAL' ? 'border-primary bg-primary/5' : 'border-gray-200'}`}>
+            <RadioGroupItem value="DUAL" id="both" className="sr-only" />
             <Label htmlFor="both" className="flex flex-col cursor-pointer">
               <span className="font-medium">Both Required</span>
               <span className="text-xs text-gray-500">Both you and the recipient must authorize the transaction</span>

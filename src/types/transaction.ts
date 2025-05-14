@@ -1,6 +1,6 @@
 export type TransactionStatus = 'PENDING' | 'COMPLETED' | 'FAILED' | 'CANCELLED' | 'REJECTED';
 export type TokenType = 'USDC' | 'USDT';
-export type AuthorizationType = 'sender' | 'receiver' | 'both';
+export type AuthorizationType = 'SENDER' | 'RECEIVER' | 'DUAL';
 export type AuthorizedBy = 'sender' | 'receiver' | 'both';
 
 export interface RecipientInfo {
