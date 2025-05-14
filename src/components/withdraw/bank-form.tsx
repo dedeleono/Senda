@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useWithdrawForm } from '@/stores/use-withdraw-form';
 import { CreditCard } from 'lucide-react';
+import Image from 'next/image';
 
 const BankForm = () => {
   const { formData, setBankInfo, nextStep, prevStep } = useWithdrawForm();
@@ -70,12 +71,25 @@ const BankForm = () => {
       <div>
         <div className="mb-6 flex flex-col items-center justify-center">
           <div className="bg-[#f6ead7] p-3 rounded-full mb-3">
-            <CreditCard className="h-6 w-6" />
+            <CreditCard className="h-16 w-8" />
           </div>
           <h3 className="text-lg font-medium">Withdraw to Bank Account</h3>
           <p className="text-sm text-gray-500 text-center mt-1">
             Enter your bank account details for withdrawal.
           </p>
+          <p className="text-sm text-gray-500 text-center">
+            Currently available in Guatemala
+          </p>
+          <div className="flex items-center gap-2 mt-2">
+            <span className="text-sm text-gray-500">Powered by</span>
+            <Image 
+              src="https://cdn.prod.website-files.com/66c35e8262b10fa677d4282c/66c36d87c4b68f50f55a13b9_Copy%20of%20Maverick-Logo-09-p-500.png"
+              alt="Maverick Capital Investment"
+              width={90}
+              height={25}
+              className="object-contain"
+            />
+          </div>
         </div>
 
         <div className="space-y-4">

@@ -58,6 +58,20 @@ const ConfirmationView = ({ onComplete }: ConfirmationViewProps) => {
           <p className="font-medium">
             {formData.method === 'wallet' ? 'Solana Wallet' : 'Bank Account'}
           </p>
+          {formData.method === 'bank' && (
+            <div className="mt-2">
+              <div className="flex items-center gap-2 mt-1">
+                <span className="text-sm text-gray-500">Powered by</span>
+                <Image 
+                  src="https://cdn.prod.website-files.com/66c35e8262b10fa677d4282c/66c36d87c4b68f50f55a13b9_Copy%20of%20Maverick-Logo-09-p-500.png"
+                  alt="Maverick Capital Investment"
+                  width={90}
+                  height={25}
+                  className="object-contain"
+                />
+              </div>
+            </div>
+          )}
         </div>
         
         <div className="rounded-lg border p-4">
