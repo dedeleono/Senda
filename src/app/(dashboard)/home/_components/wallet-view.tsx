@@ -13,7 +13,6 @@ import Image from 'next/image'
 import WalletQRDialog, { WalletQRDialogRef } from './wallet-qr-dialog'
 import { useWalletBalances } from '@/hooks/use-wallet-balances'
 import { TransactionStatus, TransactionType, SignatureType } from '@prisma/client'
-import { useQueryClient } from '@tanstack/react-query'
 
 import usdcIcon from '@/public/usdc.svg'
 import usdtIcon from '@/public/usdt-round.svg'
@@ -141,21 +140,17 @@ export default function SendaWallet() {
       message = 'Deposit completed successfully.'
     }
     
-    // You can add a toast notification here with the message
-    // toast.success(message)
   }
 
   const handleOpenTransactionDetails = (transaction: any) => {
     console.log('Raw transaction data:', transaction);
 
-    // Ensure depositIndex is properly extracted and validated
     const depositIndex = transaction.depositRecord?.depositIndex;
     if (typeof depositIndex !== 'number') {
       console.error('Invalid deposit index:', depositIndex);
       return;
     }
 
-    // Ensure we have both public keys
     const senderPublicKey = transaction.walletPublicKey;
     const receiverPublicKey = transaction.destinationAddress;
     
@@ -164,16 +159,14 @@ export default function SendaWallet() {
       return;
     }
 
-    // Ensure we have a valid escrow ID
     const escrowId = transaction.depositRecord?.escrowId;
     if (!escrowId) {
       console.error('Missing escrow ID');
       return;
     }
 
-    // Construct the complete transaction object with all required fields
     const transactionDetails = {
-      id: escrowId, // Use escrowId instead of transaction.id
+      id: escrowId,
       amount: transaction.amount,
       token: transaction.depositRecord?.stable === 'usdc' ? 'USDC' : 'USDT',
       recipientEmail: transaction.recipientEmail || 'recipient@example.com',
