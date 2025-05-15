@@ -475,6 +475,8 @@ export const sendaRouter = router({
                     include: { transaction: true, escrow: true }
                 });
 
+                console.log("Deposit", deposit);
+
                 if (!deposit) {
                     throw new TRPCError({
                         code: 'NOT_FOUND',
@@ -488,6 +490,8 @@ export const sendaRouter = router({
                         sendaWalletPublicKey: true
                     }
                 });
+
+                console.log("Signer", signer);
 
                 if (!signer) {
                     throw new TRPCError({
@@ -554,26 +558,32 @@ export const sendaRouter = router({
 
                 const { program, feePayer } = getProvider();
                 const escrowPk = new PublicKey(deposit.escrow?.id as string);
+                console.log("Escrow", escrowPk);
                 const receivingPartyPk = new PublicKey(deposit.escrow?.receiverPublicKey as string);
-
+                console.log("Receiving party", receivingPartyPk);
                 // Fetch the escrow account to get sender and receiver info
                 const escrowAccount = await program.account.escrow.fetch(escrowPk);
+                console.log("Escrow account", escrowAccount);
                 const depositorPk = new PublicKey(escrowAccount.sender);
+                console.log("Depositor", depositorPk);
                 const counterpartyPk = new PublicKey(escrowAccount.receiver);
+                console.log("Counterparty", counterpartyPk);
+
+                const [escrowPda] = PublicKey.findProgramAddressSync(
+                    [Buffer.from("escrow"), depositorPk.toBuffer(), counterpartyPk.toBuffer()],
+                    program.programId
+                  );
 
                 // Determine who is the authorized signer based on the deposit record
-                const [depositRecordPda] = findDepositRecordPDA(
-                    escrowPk,
-                    deposit.depositIndex,
+                const [depositRecordPda] = PublicKey.findProgramAddressSync(
+                    [Buffer.from("deposit"), escrowPda.toBuffer(), new BN(deposit.depositIndex).toArrayLike(Buffer, "le", 8)],
                     program.programId
-                );
-                const depositRecord = await program.account.depositRecord.fetch(depositRecordPda);
-
-                // Check the policy type from the deposit record
-                const policy = depositRecord.policy;
+                  );
+                console.log("Deposit record PDA", depositRecordPda);
 
                 const signers: Keypair[] = [];
                 if (deposit.policy === "SENDER" || deposit.policy === "DUAL") {
+                    console.log("Loading depositor keypair");
                     const { keypair: depositor } = await loadUserSignerKeypair(
                         deposit.transaction?.userId as string
                     );                    
@@ -583,9 +593,9 @@ export const sendaRouter = router({
                         deposit.transaction?.userId as string
                     );
                     signers.push(receiver);
-                } else {
-                    throw new Error('Invalid signature policy');
                 }
+
+                console.log("Signers", signers);
 
                 // Create and send the release transaction
                 const usdcMint = new PublicKey(USDC_MINT);
@@ -610,6 +620,8 @@ export const sendaRouter = router({
                     tx,
                     [feePayer, ...signers]
                 );
+
+                console.log("Signature", signature);
 
                 const updatedDeposit = await prisma.depositRecord.update({
                     where: { id: input.depositId },

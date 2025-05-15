@@ -76,6 +76,20 @@ const ConfirmationView = ({ onComplete }: ConfirmationViewProps) => {
         throw new Error(result.error?.message || 'Failed to create deposit');
       }
 
+      if (authorization === "SENDER") {
+        const updateSignature = await sendaProgram.updateDepositSignature({
+          depositId: result.data.depositId as string,
+          role: "sender" as 'sender' | 'receiver',
+          signerId: session?.user?.id as string
+        });
+
+        if (!updateSignature.success) {
+          throw new Error(updateSignature.error?.message || 'Failed to update deposit signature');
+        }
+        
+        console.log("Signature updated successfully", updateSignature);
+      }
+
       // Call onComplete with the transaction data
       onComplete(result.data.signature, result.data.depositId);
       

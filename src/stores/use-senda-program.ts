@@ -53,7 +53,7 @@ export interface SendaStore {
   createDeposit: (params: DepositInput) => Promise<CreateDepositResponse>;
   cancelDeposit: (params: CancelParams) => Promise<TransactionResult>;
   requestWithdrawal: (params: ReleaseParams) => Promise<TransactionResult>;
-  updateDepositSignature: (params: { depositId: string; role: 'sender' | 'receiver'; signer: string }) => Promise<{ success: boolean; error?: any }>;
+  updateDepositSignature: (params: { depositId: string; role: 'sender' | 'receiver'; signerId: string }) => Promise<{ success: boolean; error?: any }>;
   transferSpl: (params: TransferSplParams) => Promise<TransferSplResponse>;
   
   // Database sync operations
@@ -149,8 +149,6 @@ export const useSendaProgram = create<SendaStore>()(
               id: escrowAddress,
               senderPublicKey: senderPk,
               receiverPublicKey: receiverPk,
-              depositedUsdc: 0,
-              depositedUsdt: 0,
               depositCount: 0,
               state: 'Active',
             },
@@ -364,7 +362,7 @@ export const useSendaProgram = create<SendaStore>()(
         }
       },
 
-      updateDepositSignature: async (params: { depositId: string; role: 'sender' | 'receiver'; signer: string }) => {
+      updateDepositSignature: async (params: { depositId: string; role: 'sender' | 'receiver'; signerId: string }) => {
         try {
           set({ state: { ...get().state, isProcessing: true } });
           
