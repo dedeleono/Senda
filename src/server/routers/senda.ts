@@ -39,6 +39,7 @@ import { sendGuestDepositNotificationEmail } from "@/lib/validations/guest-depos
 import { sendDepositNotificationEmail } from "@/lib/validations/deposit-notification";
 import { SignatureType } from "@/components/transactions/transaction-card";
 import { createTransferCheckedInstruction } from "@solana/spl-token";
+import { trpc } from "@/app/_trpc/client";
 
 
 export const sendaRouter = router({
@@ -303,21 +304,6 @@ export const sendaRouter = router({
                             amount: input.amount,
                             policy: input.authorization as SignatureType,
                             stable: input.stable,
-                            senderApproved: input.authorization === "SENDER" ? true : false,
-                            signatures: [
-                                JSON.stringify({
-                                    signer: input.depositor,
-                                    role: 'sender',
-                                    status: 'signed',
-                                    timestamp: new Date()
-                                }),
-                                JSON.stringify({
-                                    signer: receiver.publicKey,
-                                    role: 'receiver',
-                                    status: 'pending',
-                                    timestamp: new Date()
-                                })
-                            ],
                             state: 'PENDING',
                             userId: ctx.session.user.id,
                             escrowId: escrowData.escrowAddress,
@@ -473,19 +459,102 @@ export const sendaRouter = router({
             return { signature: sig };
         }),
 
-    requestWithdrawal: protectedProcedure
+    updateDepositSignature: protectedProcedure
         .input(
             z.object({
-                escrowPublicKey: z.string(),
-                depositIndex: z.number().int().nonnegative(),
-                receivingPartyPublicKey: z.string()
+                depositId: z.string(),
+                role: z.enum(['sender', 'receiver']),
+                signerId: z.string(),
             })
         )
-        .mutation(async ({ ctx, input }): Promise<ReleaseResult> => {
+        .mutation(async ({ ctx, input }) => {
             try {
+                // Get the current deposit record
+                const deposit = await prisma.depositRecord.findUnique({
+                    where: { id: input.depositId },
+                    include: { transaction: true, escrow: true }
+                });
+
+                if (!deposit) {
+                    throw new TRPCError({
+                        code: 'NOT_FOUND',
+                        message: 'Deposit record not found'
+                    });
+                }
+
+                const signer = await prisma.user.findUnique({
+                    where: { id: input.signerId },
+                    select: {
+                        sendaWalletPublicKey: true
+                    }
+                });
+
+                if (!signer) {
+                    throw new TRPCError({
+                        code: 'NOT_FOUND',
+                        message: 'Signer not found'
+                    });
+                }
+
+                let isExecutable = false;
+
+                if (deposit.policy === "RECEIVER" && input.role === "receiver") {
+                    await prisma.depositRecord.update({
+                        where: { id: input.depositId },
+                        data: {
+                            receiverApproved: true,
+                        }
+                    });
+                    isExecutable = true;
+                } else if (deposit.policy === "SENDER" && input.role === "sender") {
+                    await prisma.depositRecord.update({
+                        where: { id: input.depositId },
+                        data: {
+                            senderApproved: true,
+                        }
+                    });
+                    isExecutable = true;
+                } else if (deposit.policy === "DUAL") {
+                    if (input.role === "sender") {
+                        const updatedDeposit = await prisma.depositRecord.update({
+                            where: { id: input.depositId },
+                            data: {
+                                senderApproved: true,
+                            }
+                        });
+
+                        if (updatedDeposit.senderApproved && updatedDeposit.receiverApproved) {
+                            isExecutable = true;
+                        }
+                    } else {
+                        const updatedDeposit = await prisma.depositRecord.update({
+                            where: { id: input.depositId },
+                            data: {
+                                receiverApproved: true,
+                            }
+                        });
+
+                        if (updatedDeposit.senderApproved && updatedDeposit.receiverApproved) {
+                            isExecutable = true;
+                        }
+                    }
+                }
+                
+                if (!isExecutable) {
+                    return {
+                        success: false,
+                        data: {
+                            executed: false,
+                            message: deposit.policy === "DUAL" 
+                                ? `Waiting for ${!deposit.senderApproved ? 'sender' : 'receiver'} approval`
+                                : `Waiting for ${deposit.policy.toLowerCase()} approval`
+                        }
+                    };
+                }
+
                 const { program, feePayer } = getProvider();
-                const escrowPk = new PublicKey(input.escrowPublicKey);
-                const receivingPartyPk = new PublicKey(input.receivingPartyPublicKey);
+                const escrowPk = new PublicKey(deposit.escrow?.id as string);
+                const receivingPartyPk = new PublicKey(deposit.escrow?.receiverPublicKey as string);
 
                 // Fetch the escrow account to get sender and receiver info
                 const escrowAccount = await program.account.escrow.fetch(escrowPk);
@@ -495,33 +564,25 @@ export const sendaRouter = router({
                 // Determine who is the authorized signer based on the deposit record
                 const [depositRecordPda] = findDepositRecordPDA(
                     escrowPk,
-                    input.depositIndex,
+                    deposit.depositIndex,
                     program.programId
                 );
                 const depositRecord = await program.account.depositRecord.fetch(depositRecordPda);
 
-                // Get the correct signer keypair based on authorization policy
-                const isDepositor = receivingPartyPk.equals(depositorPk);
-                let signerKp: Keypair;
-
                 // Check the policy type from the deposit record
                 const policy = depositRecord.policy;
 
-                if (policy.single?.signer.equals(depositorPk)) {
-                    if (!isDepositor) throw new Error('Only sender can release these funds');
-                    const { keypair } = await loadSignerKeypair(ctx.session!.user.id, depositorPk);
-                    signerKp = keypair;
-                } else if (policy.single?.signer.equals(counterpartyPk)) {
-                    if (isDepositor) throw new Error('Only receiver can release these funds');
-                    const { keypair } = await loadSignerKeypair(ctx.session!.user.id, counterpartyPk);
-                    signerKp = keypair;
-                } else if (policy.dual) {
-                    // For dual signature, the current user's role determines which signature we're adding
-                    const { keypair } = await loadSignerKeypair(
-                        ctx.session!.user.id,
-                        isDepositor ? depositorPk : counterpartyPk
+                const signers: Keypair[] = [];
+                if (deposit.policy === "SENDER" || deposit.policy === "DUAL") {
+                    const { keypair: depositor } = await loadUserSignerKeypair(
+                        deposit.transaction?.userId as string
+                    );                    
+                    signers.push(depositor);
+                } if (deposit.policy === "RECEIVER" || deposit.policy === "DUAL") {
+                    const { keypair: receiver } = await loadUserSignerKeypair(
+                        deposit.transaction?.userId as string
                     );
-                    signerKp = keypair;
+                    signers.push(receiver);
                 } else {
                     throw new Error('Invalid signature policy');
                 }
@@ -531,12 +592,12 @@ export const sendaRouter = router({
                 const usdtMint = new PublicKey(USDT_MINT);
 
                 const tx = await program.methods
-                    .release(new BN(input.depositIndex))
+                    .release(new BN(deposit.depositIndex))
                     .accounts({
                         escrow: escrowPk,
                         originalDepositor: depositorPk,
                         counterparty: counterpartyPk,
-                        authorizedSigner: signerKp.publicKey,
+                        authorizedSigner: depositorPk,
                         receivingParty: receivingPartyPk,
                         usdcMint,
                         usdtMint,
@@ -547,85 +608,14 @@ export const sendaRouter = router({
 
                 const signature = await (program.provider as AnchorProvider).sendAndConfirm(
                     tx,
-                    [feePayer, signerKp]
+                    [feePayer, ...signers]
                 );
 
-                // Update the database with the signature
-                await prisma.depositRecord.update({
-                    where: { id: depositRecordPda.toBase58() },
-                    data: {
-                        state: 'COMPLETED',
-                        signatures: {
-                            push: JSON.stringify({
-                                signer: signerKp.publicKey.toBase58(),
-                                role: isDepositor ? 'sender' : 'receiver',
-                                status: 'signed',
-                                signature,
-                                timestamp: new Date()
-                            })
-                        }
-                    }
-                });
-
-                return {
-                    success: true,
-                    data: { signature }
-                };
-            } catch (error) {
-                console.error('Error in requestWithdrawal:', error);
-                return {
-                    success: false,
-                    error: error instanceof Error ? error : new Error('Failed to process withdrawal')
-                };
-            }
-        }),
-
-    updateDepositSignature: protectedProcedure
-        .input(
-            z.object({
-                depositId: z.string(),
-                role: z.enum(['sender', 'receiver']),
-                signer: z.string(),
-            })
-        )
-        .mutation(async ({ ctx, input }) => {
-            try {
-                // Get the current deposit record
-                const deposit = await prisma.depositRecord.findUnique({
-                    where: { id: input.depositId },
-                    include: { transaction: true }
-                });
-
-                if (!deposit) {
-                    throw new TRPCError({
-                        code: 'NOT_FOUND',
-                        message: 'Deposit record not found'
-                    });
-                }
-
-                // Parse existing signatures
-                const currentSignatures = deposit.signatures.map(sig => JSON.parse(sig));
-
-                // Update or add the signature for the current role
-                const sigIndex = currentSignatures.findIndex(sig => sig.role === input.role);
-                const newSignature = {
-                    signer: input.signer,
-                    role: input.role,
-                    status: 'signed',
-                    timestamp: new Date()
-                };
-
-                if (sigIndex >= 0) {
-                    currentSignatures[sigIndex] = newSignature;
-                } else {
-                    currentSignatures.push(newSignature);
-                }
-
-                // Update the deposit record
                 const updatedDeposit = await prisma.depositRecord.update({
                     where: { id: input.depositId },
                     data: {
-                        signatures: currentSignatures.map(sig => JSON.stringify(sig))
+                        state: 'COMPLETED',
+                        signature: signature
                     }
                 });
 

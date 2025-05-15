@@ -47,7 +47,6 @@ model User {
 
   senderEscrows   Escrow[] @relation("SenderEscrows")
   receiverEscrows Escrow[] @relation("ReceiverEscrows")
-
   @@index([role])
   @@index([sendaWalletPublicKey])
 }
@@ -162,7 +161,7 @@ model DepositRecord {
   amount       Float
   policy       SignatureType
   stable       String
-  signatures   String[]
+  signature    String? 
   state        String
   userId       String
   user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
