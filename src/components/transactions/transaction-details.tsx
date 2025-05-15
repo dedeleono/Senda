@@ -14,7 +14,7 @@ import {
   ArrowUpRight, Copy, XCircle, Check, Loader2, ExternalLink, Calendar, Mail 
 } from 'lucide-react';
 import { format } from 'date-fns';
-import { TransactionStatus, AuthorizedBy } from './transaction-card';
+import { TransactionStatus, SignatureType } from './transaction-card';
 import { useToast } from '@/hooks/use-toast';
 import { useSendaProgram } from '@/stores/use-senda-program';
 
@@ -29,11 +29,11 @@ interface TransactionDetailsProps {
     senderEmail?: string;
     createdAt: Date;
     status: TransactionStatus;
-    authorization: AuthorizedBy;
+    authorization: SignatureType;
     isDepositor: boolean;
     signatures: Array<{
       signer: string;
-      role: 'sender' | 'receiver';
+      role: SignatureType;
       timestamp?: Date;
       status: 'signed' | 'pending';
     }>;
@@ -56,7 +56,7 @@ export default function TransactionDetails({
 }: TransactionDetailsProps) {
   const [isProcessing, setIsProcessing] = useState(false);
   const { toast } = useToast();
-  const { requestWithdrawal, updateDepositSignature } = useSendaProgram();
+  const { updateDepositSignature } = useSendaProgram();
 
   const handleActionClick = async () => {
     if (isProcessing) return;
@@ -73,21 +73,16 @@ export default function TransactionDetails({
     try {
       const { status, authorization, isDepositor, depositIndex } = transaction;
       
-      // Check if depositIndex is undefined or null, but allow 0
       if (typeof depositIndex !== 'number') {
         throw new Error('Invalid deposit index');
       }
       
       if (status === 'PENDING') {
-        // Handle different authorization scenarios
         if (authorization === 'RECEIVER' && !isDepositor) {
-          // Receiver-only authorization - can release immediately
           await handleReleaseFunds(depositIndex);
         } else if (authorization === 'SENDER' && isDepositor) {
-          // Sender-only authorization - can release immediately
           await handleReleaseFunds(depositIndex);
         } else if (authorization === 'DUAL') {
-          // Dual signature required - need to check existing signatures
           const currentSignatures = transaction.signatures.map(sig => {
             try {
               return typeof sig === 'string' ? JSON.parse(sig) : sig;
@@ -98,25 +93,20 @@ export default function TransactionDetails({
           }).filter(Boolean);
 
           const senderSigned = currentSignatures.some(sig => 
-            sig.role === 'sender' && sig.status === 'signed'
+            sig.role === 'SENDER' && sig.status === 'signed'
           );
           const receiverSigned = currentSignatures.some(sig => 
-            sig.role === 'receiver' && sig.status === 'signed'
+            sig.role === 'RECEIVER' && sig.status === 'signed'
           );
 
           if ((isDepositor && !senderSigned) || (!isDepositor && !receiverSigned)) {
-            // Current user hasn't signed yet - add their signature
-            const role = isDepositor ? 'sender' : 'receiver';
-            const signer = currentSignatures.find(sig => sig.role === role)?.signer;
-            
-            if (!signer) {
-              throw new Error('Signer information not found');
-            }
+            const role = isDepositor ? 'SENDER' as const : 'RECEIVER' as const;
+            const signerId = isDepositor ? transaction.senderPublicKey : transaction.receiverPublicKey;
 
             const result = await updateDepositSignature({
               depositId: transaction.id,
-              role,
-              signer
+              role: role as 'sender' | 'receiver',
+              signerId
             });
 
             if (!result.success) {
@@ -132,7 +122,6 @@ export default function TransactionDetails({
           }
 
           if (senderSigned && receiverSigned) {
-            // Both parties have signed - can release funds
             await handleReleaseFunds(depositIndex);
           } else {
             toast({
@@ -158,31 +147,28 @@ export default function TransactionDetails({
 
   const handleReleaseFunds = async (depositIdx: number) => {
     try {
-      // Validate required fields
       if (!transaction.id || !transaction.senderPublicKey || !transaction.receiverPublicKey) {
         throw new Error('Missing required transaction information');
       }
 
-      // Determine receiving party public key based on who is releasing
       const receivingPartyPublicKey = transaction.isDepositor 
-        ? transaction.receiverPublicKey  // If depositor is releasing, funds go to receiver
-        : transaction.senderPublicKey;   // If receiver is releasing, funds go to sender
+        ? transaction.receiverPublicKey
+        : transaction.senderPublicKey;
 
-      const result = await requestWithdrawal({
-        escrowPublicKey: transaction.id,
-        depositIndex: depositIdx,
-        receivingPartyPublicKey
-      });
+      // const result = await requestWithdrawal({
+      //   escrowPublicKey: transaction.id,
+      //   depositIndex: depositIdx,
+      //   receivingPartyPublicKey
+      // });
 
-      if (!result.success) {
-        throw result.error || new Error('Failed to process withdrawal');
-      }
+      // if (!result.success) {
+      //   throw result.error || new Error('Failed to process withdrawal');
+      // }
 
-      // Update local state with the transaction signature
       await updateDepositSignature({
         depositId: transaction.id,
         role: transaction.isDepositor ? 'sender' : 'receiver',
-        signer: transaction.isDepositor ? transaction.senderPublicKey : transaction.receiverPublicKey
+        signerId: transaction.isDepositor ? transaction.senderPublicKey : transaction.receiverPublicKey
       });
 
       toast({
@@ -246,7 +232,7 @@ export default function TransactionDetails({
     return token === 'USDC' ? usdcIcon : usdtIcon;
   };
 
-  const getAuthorizationText = (authorization: AuthorizedBy) => {
+  const getAuthorizationText = (authorization: SignatureType) => {
     switch (authorization) {
       case 'SENDER':
         return 'Sender only';
@@ -273,7 +259,7 @@ export default function TransactionDetails({
     }
     
     if (authorization === 'DUAL') {
-      const userRole = isDepositor ? 'sender' : 'receiver';
+      const userRole = isDepositor ? 'SENDER' : 'RECEIVER';
       const hasUserSigned = signatures.some(
         sig => sig.role === userRole && sig.status === 'signed'
       );
@@ -430,4 +416,4 @@ export default function TransactionDetails({
       </DialogContent>
     </Dialog>
   );
-} 
+}

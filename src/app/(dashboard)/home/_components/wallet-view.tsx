@@ -23,7 +23,6 @@ import { Badge } from '@/components/ui/badge'
 import { useWalletStore } from '@/stores/use-wallet-store'
 import WithdrawModal, { WithdrawModalRef } from '@/components/withdraw/withdraw-modal'
 import AddFundsModal, { AddFundsModalRef } from '@/components/deposit/add-funds-modal'
-import SignatureDialog, { SignatureDialogRef } from './signature-dialog'
 
 interface TransactionDetailsData {
   id: string
@@ -36,7 +35,7 @@ interface TransactionDetailsData {
   isDepositor: boolean
   signatures: Array<{
     signer: string
-    role: 'sender' | 'receiver'
+    role: SignatureType
     timestamp?: Date
     status: 'signed' | 'pending'
   }>
@@ -62,10 +61,14 @@ interface Transaction {
   createdAt: string
   updatedAt: string
   completedAt: string | null
+  signature?: string
   depositRecord?: {
     id: string
     stable: 'usdc' | 'usdt'
     policy: SignatureType
+    depositIndex: number
+    escrowId: string
+    signatures?: string[]
   }
   destinationUserId?: string
   destinationUser?: {
@@ -77,13 +80,38 @@ interface TransactionResponse {
   transactions: Transaction[]
 }
 
+interface Path {
+  id: string
+  createdAt: string
+  updatedAt: string
+  state: string
+  senderPublicKey: string
+  receiverPublicKey: string
+  depositCount: number
+  depositedUsdc: number
+  depositedUsdt: number
+  sender: {
+    email: string
+    name: string | null
+  }
+  receiver: {
+    email: string
+    name: string | null
+  }
+}
+
+interface PathsResponse {
+  paths: Path[]
+}
+
 export default function SendaWallet() {
   const { isAuthenticated, session } = useAuth()
   const walletQRDialogRef = useRef<WalletQRDialogRef>(null)
   const depositModalRef = useRef<DepositModalRef>(null)
   const withdrawModalRef = useRef<WithdrawModalRef>(null)
   const addFundsModalRef = useRef<AddFundsModalRef>(null)
-  const signatureDialogRef = useRef<SignatureDialogRef>(null)
+
+  const utils = trpc.useContext()
 
   const { publicKey } = useWalletStore()
   const sendaWalletAddress = publicKey?.toString() || null
@@ -101,16 +129,13 @@ export default function SendaWallet() {
     }
   ) as { data: TransactionResponse | undefined, isLoading: boolean }
 
-
   const { data: paths, isLoading: isLoadingPaths } = trpc.userRouter.getUserPaths.useQuery(
     { userId: session?.user.id as string },
     {
       enabled: isAuthenticated,
       retry: false,
     }
-  )
-
-  const utils = trpc.useContext()
+  ) as { data: PathsResponse | undefined, isLoading: boolean }
 
   const handleOpenWalletQR = () => {
     walletQRDialogRef.current?.open()
@@ -142,9 +167,7 @@ export default function SendaWallet() {
     
   }
 
-  const handleOpenTransactionDetails = (transaction: any) => {
-    console.log('Raw transaction data:', transaction);
-
+  const handleOpenTransactionDetails = (transaction: Transaction) => {
     const depositIndex = transaction.depositRecord?.depositIndex;
     if (typeof depositIndex !== 'number') {
       console.error('Invalid deposit index:', depositIndex);
@@ -165,18 +188,22 @@ export default function SendaWallet() {
       return;
     }
 
-    const transactionDetails = {
+    const transactionDetails: TransactionDetailsData = {
       id: escrowId,
       amount: transaction.amount,
       token: transaction.depositRecord?.stable === 'usdc' ? 'USDC' : 'USDT',
-      recipientEmail: transaction.recipientEmail || 'recipient@example.com',
+      recipientEmail: transaction.destinationUserId ? transaction.destinationUser?.email as string : '',
       createdAt: new Date(transaction.createdAt),
       status: transaction.status,
-      authorization: transaction.depositRecord?.policy === 'DUAL' ? 'both' : 'sender',
-      isDepositor: true,
-      signatures: transaction.depositRecord?.signatures?.map((sig: string) => {
+      authorization: transaction.depositRecord?.policy as SignatureType,
+      isDepositor: transaction.userId === session?.user.id,
+      signatures: transaction.depositRecord?.signatures?.map((sig: any) => {
         try {
-          return JSON.parse(sig);
+          const parsedSig = typeof sig === 'string' ? JSON.parse(sig) : sig;
+          return {
+            ...parsedSig,
+            role: parsedSig.role.toUpperCase() as SignatureType
+          };
         } catch (e) {
           console.error('Error parsing signature:', e);
           return null;
@@ -195,18 +222,11 @@ export default function SendaWallet() {
       receiverPublicKey
     };
 
-    console.log('Constructed transaction details:', transactionDetails);
-    setSelectedTransaction(transactionDetails as TransactionDetailsData);
+    setSelectedTransaction(transactionDetails);
     setIsTransactionDetailsOpen(true);
   };
 
-  const handleSignTransaction = (transaction: Transaction) => {
-    if (!transaction.depositRecord?.id) return
-    signatureDialogRef.current?.open(transaction.depositRecord.id, session?.user.id === transaction.userId ? 'sender' : 'receiver', session?.user.id as string)
-  }
-
-  const handleSignatureComplete = (depositId: string) => {
-    // Invalidate and refetch transactions
+  const handleSignatureComplete = () => {
     utils.transactionRouter.getUserTransactions.invalidate()
   }
 
@@ -346,13 +366,15 @@ export default function SendaWallet() {
                         id={transaction.id}
                         amount={transaction.amount}
                         token={transaction.depositRecord?.stable === 'usdc' ? 'USDC' : 'USDT'}
-                        recipientEmail={transaction.destinationUserId ? transaction.destinationUser?.email as string : 'recipient@example.com'}
+                        recipientEmail={transaction.destinationUserId ? transaction.destinationUser?.email as string : ''}
                         createdAt={new Date(transaction.createdAt)}
                         status={transaction.status}
                         authorization={transaction.depositRecord?.policy as SignatureType}
                         isDepositor={transaction.userId === session?.user.id}
+                        depositId={transaction.depositRecord?.id}
+                        signerId={session?.user.id}
                         onClick={() => handleOpenTransactionDetails(transaction)}
-                        onSign={() => handleSignTransaction(transaction)}
+                        onSignatureComplete={handleSignatureComplete}
                       />
                     ))}
                 </div>
@@ -386,7 +408,7 @@ export default function SendaWallet() {
                         id={transaction.id}
                         amount={transaction.amount}
                         token={transaction.depositRecord?.stable === 'usdc' ? 'USDC' : 'USDT'}
-                        recipientEmail={transaction.destinationUserId ? transaction.destinationUser?.email as string : 'recipient@example.com'}
+                        recipientEmail={transaction.destinationUserId ? transaction.destinationUser?.email as string : ''}
                         createdAt={new Date(transaction.createdAt)}
                         status={transaction.status}
                         authorization={transaction.depositRecord?.policy as SignatureType}
@@ -415,9 +437,9 @@ export default function SendaWallet() {
                 <div className="py-8 flex justify-center">
                   <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#d7dfbe] border-t-transparent" />
                 </div>
-              ) : paths && paths.length > 0 ? (
+              ) : paths && paths.paths.length > 0 ? (
                 <div className="p-6 space-y-6">
-                  {paths.map((path) => {
+                  {paths.paths.map((path) => {
                     const isReceiver = path.senderPublicKey === publicKey?.toString();
                     const otherPartyEmail = isReceiver ? path.receiver.email : path.sender.email;
                     const otherPartyName = isReceiver ? path.receiver.name : path.sender.name;
@@ -520,8 +542,6 @@ export default function SendaWallet() {
           transaction={selectedTransaction}
         />
       )}
-
-      <SignatureDialog ref={signatureDialogRef} onComplete={handleSignatureComplete} />
     </div>
   )
 }

@@ -3,16 +3,17 @@
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Clock, CheckCircle, XCircle, AlertTriangle, ChevronRight, DollarSign } from 'lucide-react';
+import { Clock, CheckCircle, XCircle, AlertTriangle, ChevronRight, DollarSign, Loader2 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import Image from 'next/image';
 import usdcIcon from '@/public/usdc.svg';
 import usdtIcon from '@/public/usdt-round.svg';
 import { useState } from 'react';
+import { toast } from 'sonner';
+import { trpc } from '@/app/_trpc/client';
 
 export type TransactionStatus = 'PENDING' | 'COMPLETED' | 'CANCELLED' | 'REJECTED' | 'FAILED';
 export type SignatureType = 'SENDER' | 'RECEIVER' | 'DUAL';
-export type AuthorizedBy = 'SENDER' | 'RECEIVER' | 'DUAL';
 
 export interface TransactionCardProps {
   id: string;
@@ -21,10 +22,12 @@ export interface TransactionCardProps {
   recipientEmail: string;
   createdAt: Date;
   status: TransactionStatus;
-  authorization: AuthorizedBy;
+  authorization: SignatureType;
   isDepositor: boolean;
+  depositId?: string;
+  signerId?: string;
   onClick?: () => void;
-  onSign?: () => void;
+  onSignatureComplete?: () => void;
 }
 
 export default function TransactionCard({
@@ -36,10 +39,24 @@ export default function TransactionCard({
   status,
   authorization,
   isDepositor,
+  depositId,
+  signerId,
   onClick,
-  onSign,
+  onSignatureComplete,
 }: TransactionCardProps) {
   const [isLoading, setIsLoading] = useState(false);
+
+  const { mutate: updateDeposit } = trpc.sendaRouter.updateDepositSignature.useMutation({
+    onSuccess: () => {
+      toast.success('Transaction signed successfully');
+      onSignatureComplete?.();
+      setIsLoading(false);
+    },
+    onError: (error) => {
+      toast.error(error.message || 'Failed to sign transaction');
+      setIsLoading(false);
+    },
+  });
 
   const getStatusColor = (status: TransactionStatus) => {
     switch (status) {
@@ -90,7 +107,7 @@ export default function TransactionCard({
     }
   };
 
-  const getAuthorizationText = (authorization: AuthorizedBy) => {
+  const getAuthorizationText = (authorization: SignatureType) => {
     switch (authorization) {
       case 'SENDER':
         return 'Sender only';
@@ -106,31 +123,28 @@ export default function TransactionCard({
   const getActionButtonText = () => {
     if (status === 'PENDING') {
       if (isDepositor && (authorization === 'SENDER' || authorization === 'DUAL')) {
-        return 'Release Funds';
+        return isLoading ? 'Signing...' : 'Sign as Sender';
       } else if (!isDepositor && (authorization === 'RECEIVER' || authorization === 'DUAL')) {
-        return 'Withdraw Funds';
+        return isLoading ? 'Signing...' : 'Sign as Receiver';
       }
-    }
-    
-    if (status === 'PENDING' && isDepositor) {
-      return 'Cancel Deposit';
-    }
-    
-    if (status === 'COMPLETED') {
-      return 'View Details';
     }
     
     return 'View Details';
   };
 
-  const handleActionClick = (e: React.MouseEvent) => {
+  const handleActionClick = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    setIsLoading(true);
     
-    setTimeout(() => {
-      setIsLoading(false);
-      if (onClick) onClick();
-    }, 500);
+    if (status === 'PENDING' && depositId && signerId) {
+      setIsLoading(true);
+      updateDeposit({
+        depositId,
+        role: isDepositor ? 'sender' : 'receiver',
+        signerId,
+      });
+    } else {
+      onClick?.();
+    }
   };
 
   const getTokenIcon = (tokenSymbol: 'USDC' | 'USDT') => {
@@ -190,9 +204,10 @@ export default function TransactionCard({
           onClick={handleActionClick} 
           variant={status === 'PENDING' ? 'default' : 'outline'}
           size="sm"
-          className="w-full"
+          className="w-full bg-[#d7dfbe] text-black hover:bg-[#d7dfbe] hover:text-black"
           disabled={isLoading}
         >
+          {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           {getActionButtonText()}
         </Button>
       </CardFooter>
