@@ -12,41 +12,70 @@ import IceDoodle from '@/public/IceCreamDoodle.svg'
 import Image from 'next/image'
 import WalletQRDialog, { WalletQRDialogRef } from './wallet-qr-dialog'
 import { useWalletBalances } from '@/hooks/use-wallet-balances'
+import { TransactionStatus, TransactionType, SignatureType } from '@prisma/client'
+import { useQueryClient } from '@tanstack/react-query'
 
 import usdcIcon from '@/public/usdc.svg'
 import usdtIcon from '@/public/usdt-round.svg'
 import DepositModal, { DepositModalRef } from '@/components/deposit/deposit-modal'
-import TransactionCard, { TransactionStatus, AuthorizedBy, SignatureType } from '@/components/transactions/transaction-card'
+import TransactionCard from '@/components/transactions/transaction-card'
 import TransactionDetails from '@/components/transactions/transaction-details'
 import { Badge } from '@/components/ui/badge'
 import { useWalletStore } from '@/stores/use-wallet-store'
 import WithdrawModal, { WithdrawModalRef } from '@/components/withdraw/withdraw-modal'
 import AddFundsModal, { AddFundsModalRef } from '@/components/deposit/add-funds-modal'
+import SignatureDialog, { SignatureDialogRef } from './signature-dialog'
 
 interface TransactionDetailsData {
-  id: string;
-  amount: number;
-  token: 'USDC' | 'USDT';
-  recipientEmail: string;
-  createdAt: Date;
-  status: TransactionStatus;
-  authorization: AuthorizedBy;
-  isDepositor: boolean;
+  id: string
+  amount: number
+  token: 'USDC' | 'USDT'
+  recipientEmail: string
+  createdAt: Date
+  status: TransactionStatus
+  authorization: SignatureType
+  isDepositor: boolean
   signatures: Array<{
-    signer: string;
-    role: 'sender' | 'receiver';
-    timestamp?: Date;
-    status: 'signed' | 'pending';
-  }>;
+    signer: string
+    role: 'sender' | 'receiver'
+    timestamp?: Date
+    status: 'signed' | 'pending'
+  }>
   statusHistory: Array<{
-    status: string;
-    timestamp: Date;
-    actor?: string;
-  }>;
-  depositIndex: number;
-  transactionSignature?: string;
-  senderPublicKey: string;
-  receiverPublicKey: string;
+    status: string
+    timestamp: Date
+    actor?: string
+  }>
+  depositIndex: number
+  transactionSignature?: string
+  senderPublicKey: string
+  receiverPublicKey: string
+}
+
+interface Transaction {
+  id: string
+  amount: number
+  status: TransactionStatus
+  type: TransactionType
+  userId: string
+  walletPublicKey: string
+  destinationAddress: string | null
+  createdAt: string
+  updatedAt: string
+  completedAt: string | null
+  depositRecord?: {
+    id: string
+    stable: 'usdc' | 'usdt'
+    policy: SignatureType
+  }
+  destinationUserId?: string
+  destinationUser?: {
+    email: string
+  }
+}
+
+interface TransactionResponse {
+  transactions: Transaction[]
 }
 
 export default function SendaWallet() {
@@ -55,6 +84,7 @@ export default function SendaWallet() {
   const depositModalRef = useRef<DepositModalRef>(null)
   const withdrawModalRef = useRef<WithdrawModalRef>(null)
   const addFundsModalRef = useRef<AddFundsModalRef>(null)
+  const signatureDialogRef = useRef<SignatureDialogRef>(null)
 
   const { publicKey } = useWalletStore()
   const sendaWalletAddress = publicKey?.toString() || null
@@ -70,7 +100,7 @@ export default function SendaWallet() {
       enabled: isAuthenticated,
       retry: false,
     }
-  )
+  ) as { data: TransactionResponse | undefined, isLoading: boolean }
 
 
   const { data: paths, isLoading: isLoadingPaths } = trpc.userRouter.getUserPaths.useQuery(
@@ -80,6 +110,8 @@ export default function SendaWallet() {
       retry: false,
     }
   )
+
+  const utils = trpc.useContext()
 
   const handleOpenWalletQR = () => {
     walletQRDialogRef.current?.open()
@@ -174,6 +206,16 @@ export default function SendaWallet() {
     setSelectedTransaction(transactionDetails as TransactionDetailsData);
     setIsTransactionDetailsOpen(true);
   };
+
+  const handleSignTransaction = (transaction: Transaction) => {
+    if (!transaction.depositRecord?.id) return
+    signatureDialogRef.current?.open(transaction.depositRecord.id, session?.user.id === transaction.userId ? 'sender' : 'receiver', session?.user.id as string)
+  }
+
+  const handleSignatureComplete = (depositId: string) => {
+    // Invalidate and refetch transactions
+    utils.transactionRouter.getUserTransactions.invalidate()
+  }
 
   if (error) {
     return (
@@ -315,8 +357,9 @@ export default function SendaWallet() {
                         createdAt={new Date(transaction.createdAt)}
                         status={transaction.status}
                         authorization={transaction.depositRecord?.policy as SignatureType}
-                        isDepositor={true}
+                        isDepositor={transaction.userId === session?.user.id}
                         onClick={() => handleOpenTransactionDetails(transaction)}
+                        onSign={() => handleSignTransaction(transaction)}
                       />
                     ))}
                 </div>
@@ -484,6 +527,8 @@ export default function SendaWallet() {
           transaction={selectedTransaction}
         />
       )}
+
+      <SignatureDialog ref={signatureDialogRef} onComplete={handleSignatureComplete} />
     </div>
   )
 }

@@ -24,6 +24,7 @@ export interface TransactionCardProps {
   authorization: AuthorizedBy;
   isDepositor: boolean;
   onClick?: () => void;
+  onSign?: () => void;
 }
 
 export default function TransactionCard({
@@ -36,6 +37,7 @@ export default function TransactionCard({
   authorization,
   isDepositor,
   onClick,
+  onSign,
 }: TransactionCardProps) {
   const [isLoading, setIsLoading] = useState(false);
 
