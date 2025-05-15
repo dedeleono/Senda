@@ -30,9 +30,7 @@ model User {
   encryptedPrivateKey  String
   iv                   String
   authTag              String
-  linkedWallets        LinkedWallet[]
 
-  fiatFundingTransactions FiatFunding[]
   onChainTransactions     Transaction[]
   deposits                DepositRecord[]
   transactionHistory      TransactionHistory[]
@@ -117,19 +115,6 @@ model TwoFactorSecret {
   updatedAt DateTime @updatedAt
 }
 
-model LinkedWallet {
-  id        String  @id @default(uuid())
-  publicKey String  @unique
-  isPrimary Boolean @default(false)
-  provider  String? // Store wallet provider name (Phantom, Solflare, etc.)
-
-  userId String
-  user   User   @relation(fields: [userId], references: [id])
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
 model Transaction {
   id                 String  @id @default(uuid())
   walletPublicKey    String
@@ -155,27 +140,6 @@ model Transaction {
   @@index([userId])
   @@index([destinationAddress])
   @@index([walletPublicKey])
-}
-
-model FiatFunding {
-  id        String @id @default(uuid())
-  publicKey String
-  method    String
-  chain     String
-  asset     String
-  amount    Float
-
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  timestamp DateTime @default(now())
-
-  @@index([userId])
-  @@index([publicKey])
-  @@index([userId, publicKey])
 }
 
 model EscrowLog {
@@ -209,6 +173,8 @@ model DepositRecord {
   transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
 
   escrowLog EscrowLog?
+  senderApproved Boolean? @default(false)
+  receiverApproved Boolean? @default(false)
 
   escrowId String?
   escrow   Escrow? @relation(fields: [escrowId], references: [id])
@@ -298,8 +264,6 @@ model Escrow {
   id                String @id @unique
   senderPublicKey   String
   receiverPublicKey String
-  depositedUsdc     Float
-  depositedUsdt     Float
   depositCount      Float
   state             String // "Active" | "Closed"
 

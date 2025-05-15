@@ -291,8 +291,6 @@ export const sendaRouter = router({
                                 id: escrowData.escrowAddress,
                                 senderPublicKey: input.depositor,
                                 receiverPublicKey: receiver.publicKey,
-                                depositedUsdc: 0,
-                                depositedUsdt: 0,
                                 depositCount: 0,
                                 state: 'Active'
                             }
@@ -305,6 +303,7 @@ export const sendaRouter = router({
                             amount: input.amount,
                             policy: input.authorization as SignatureType,
                             stable: input.stable,
+                            senderApproved: input.authorization === "SENDER" ? true : false,
                             signatures: [
                                 JSON.stringify({
                                     signer: input.depositor,
